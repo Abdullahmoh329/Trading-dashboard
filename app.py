@@ -3,188 +3,336 @@ import yfinance as yf
 import pandas as pd
 import numpy as np
 import plotly.graph_objects as go
+import requests
 
 # -------------------------------------------------------------
-# 1. تهيئة الصفحة والتصميم
+# 1. تهيئة الصفحة والتصميم Modern Dark Terminal UI
 # -------------------------------------------------------------
-st.set_page_config(page_title="Live Options Finder Terminal", layout="wide")
+st.set_page_config(
+    page_title="Quant Options Engine",
+    page_icon="⚡",
+    layout="wide",
+    initial_sidebar_state="expanded"
+)
 
+# تصميم CSS مخصص متقدم واجهة احترافية
 st.markdown("""
 <style>
-    .stApp { background-color: #0d1117; color: #c9d1d9; }
-    .best-card {
-        background: linear-gradient(135deg, #1f242d 0%, #161b22 100%);
-        border: 2px solid #58a6ff; border-radius: 12px; padding: 20px; margin-bottom: 20px;
+    /* خلفية الصفحة العامة */
+    .stApp {
+        background-color: #0b0e14;
+        color: #e6edf3;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
     }
-    .metric-card {
-        background: #161b22; border: 1px solid #30363d;
-        border-radius: 8px; padding: 12px; text-align: center;
+    
+    /* الهيدر العلوي والعناوين */
+    .terminal-header {
+        background: linear-gradient(90deg, #161b22 0%, #0d1117 100%);
+        border: 1px solid #30363d;
+        border-radius: 12px;
+        padding: 20px 25px;
+        margin-bottom: 25px;
+        box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4);
     }
-    .metric-label { font-size: 0.8rem; color: #8b949e; margin-bottom: 4px; }
-    .metric-val { font-size: 1.25rem; font-weight: bold; color: #f0f6fc; }
+    
+    /* كارت العقد الأفضل الموصى به - تصميم النيون */
+    .hero-card {
+        background: linear-gradient(135deg, rgba(88, 166, 255, 0.1) 0%, rgba(15, 23, 42, 0.6) 100%);
+        border: 2px solid #58a6ff;
+        border-radius: 16px;
+        padding: 24px;
+        margin-bottom: 25px;
+        box-shadow: 0 0 25px rgba(88, 166, 255, 0.15);
+        position: relative;
+    }
+    .badge-recommend {
+        background: #238636;
+        color: #ffffff;
+        font-size: 0.8rem;
+        font-weight: bold;
+        padding: 4px 12px;
+        border-radius: 20px;
+        text-transform: uppercase;
+        letter-spacing: 1px;
+    }
+    
+    /* بطاقات الأرقام والمقاييس */
+    .stat-card {
+        background: #161b22;
+        border: 1px solid #30363d;
+        border-radius: 12px;
+        padding: 16px;
+        text-align: center;
+        transition: transform 0.2s ease, border-color 0.2s ease;
+    }
+    .stat-card:hover {
+        border-color: #58a6ff;
+        transform: translateY(-2px);
+    }
+    .stat-label {
+        font-size: 0.82rem;
+        color: #8b949e;
+        margin-bottom: 6px;
+        font-weight: 500;
+    }
+    .stat-val-green {
+        font-size: 1.4rem;
+        font-weight: 700;
+        color: #3fb950;
+    }
+    .stat-val-red {
+        font-size: 1.4rem;
+        font-weight: 700;
+        color: #f85149;
+    }
+    .stat-val-blue {
+        font-size: 1.4rem;
+        font-weight: 700;
+        color: #58a6ff;
+    }
+    .stat-val-neutral {
+        font-size: 1.4rem;
+        font-weight: 700;
+        color: #f0f6fc;
+    }
+
+    /* تعديلات القائمة الجانبية Sidebar */
+    [data-testid="stSidebar"] {
+        background-color: #161b22;
+        border-right: 1px solid #30363d;
+    }
 </style>
 """, unsafe_allow_html=True)
 
 # -------------------------------------------------------------
-# 2. القائمة الجانبية وإدخال الهدف ووقف الخسارة
+# 2. إدارة الجلسة لمنع Rate Limit من ياهو فاينانس
 # -------------------------------------------------------------
-st.sidebar.title("🎯 Live Options Selector")
-st.sidebar.caption("محدد أفضل عقد أوبشن بناءً على هدف ووقف السهم")
+def get_bypass_session():
+    session = requests.Session()
+    session.headers.update({
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
+        'Accept-Language': 'en-US,en;q=0.9',
+    })
+    return session
 
-symbol = st.sidebar.text_input("رمز السهم:", value="NVDA").upper().strip()
+@st.cache_data(ttl=180) # كاش لمدة 3 دقائق لتقليل الطلبات وحماية الـ IP
+def fetch_ticker_data(symbol_str):
+    try:
+        session = get_bypass_session()
+        ticker = yf.Ticker(symbol_str, session=session)
+        
+        hist = ticker.history(period="1mo", interval="15m")
+        if hist.empty:
+            return None, None, []
+        
+        current_price = float(hist['Close'].iloc[-1])
+        expirations = ticker.options
+        return ticker, current_price, expirations, hist
+    except Exception as e:
+        return None, None, [], None
 
-# جلب بيانات السهم المباشرة
-@st.cache_data(ttl=30)
-def get_stock_data(ticker_symbol):
-    t = yf.Ticker(ticker_symbol)
-    hist = t.history(period="5d", interval="15m")
-    if hist.empty:
-        return None, None, []
-    current_price = float(hist['Close'].iloc[-1])
-    expirations = t.options
-    return t, current_price, expirations
+# -------------------------------------------------------------
+# 3. القائمة الجانبية وإدخال البيانات
+# -------------------------------------------------------------
+st.sidebar.markdown("### ⚡ محرك تداول العقود")
+st.sidebar.caption("إدخال الأهداف المباشرة وفحص السلسلة")
 
-ticker_obj, live_price, all_expirations = get_stock_data(symbol)
+symbol = st.sidebar.text_input("رمز السهم (Ticker):", value="NVDA").upper().strip()
+
+ticker_obj, live_price, expirations, price_hist = fetch_ticker_data(symbol)
 
 if not live_price:
-    st.error(f"⚠️ يتعذر جلب بيانات السهم {symbol}. تأكد من الرمز.")
+    st.error(f"⚠️ يتعذر جلب بيانات السهم **{symbol}**. قد يكون الرمز خاطئاً أو أن السيرفر يتلقى طلبات كثيرة. انتظر لحظات واضغط تحديث.")
 else:
-    st.sidebar.markdown(f"**السعر الحالي للسهم:** `${live_price:.2f}`")
-    
-    # اختيار الاتجاه والهدف ووقف الخسارة
-    trade_type = st.sidebar.radio("نوع الصفقة المستهدفة:", ["CALL (صاعد) 📈", "PUT (هابط) 📉"])
-    
-    default_tp = round(live_price * 1.02 if "CALL" in trade_type else live_price * 0.98, 2)
-    default_sl = round(live_price * 0.99 if "CALL" in trade_type else live_price * 1.01, 2)
+    st.sidebar.markdown("---")
+    st.sidebar.markdown(f"**سعر السهم اللحظي:** `${live_price:.2f}`")
 
+    trade_type = st.sidebar.radio("نوع التوصية / الصفقة:", ["CALL (صعود) 📈", "PUT (هبوط) 📉"])
+    is_call = "CALL" in trade_type
+
+    # اقتراح قيم افتراضية منطقية للهدف والوقف
+    default_tp = round(live_price * 1.025 if is_call else live_price * 0.975, 2)
+    default_sl = round(live_price * 0.990 if is_call else live_price * 1.010, 2)
+
+    st.sidebar.markdown("#### 🎯 المستهدفات الفنية للسهم")
     target_price = st.sidebar.number_input("هدف السهم (Take Profit $):", value=default_tp, step=0.5)
     stop_loss = st.sidebar.number_input("وقف خسارة السهم (Stop Loss $):", value=default_sl, step=0.5)
-    
-    # اختيار تاريخ الانتهاء المستهدف (أو اقرب تاريخ)
-    selected_exp = st.sidebar.selectbox("تاريخ انتهاء العقد (Expiration):", all_expirations[:5] if all_expirations else ["لا يوجد"])
+
+    st.sidebar.markdown("#### 📅 تاريخ انتهاء الأوبشن")
+    selected_exp = st.sidebar.selectbox("اختر التاريخ:", expirations[:6] if expirations else ["غير متاح"])
 
     # -------------------------------------------------------------
-    # 3. محرك فحص وتقييم عقود الأوبشن الحية
+    # 4. محرك تحليل وسلسلة العقود
     # -------------------------------------------------------------
-    def analyze_live_options(ticker, exp_date, current_s, tp_s, sl_s, is_call):
+    def process_options_chain(ticker, exp_date, current_s, tp_s, sl_s, call_mode):
         try:
             chain = ticker.option_chain(exp_date)
-            df_opts = chain.calls if is_call else chain.puts
-            
-            if df_opts.empty:
+            opts = chain.calls if call_mode else chain.puts
+            if opts.empty:
                 return None
 
-            # فلترة العقود القريبة من السعر (±10% من سعر السهم) والابتعاد عن العقود البعيدة جداً
-            df_opts = df_opts[(df_opts['strike'] >= current_s * 0.85) & (df_opts['strike'] <= current_s * 1.15)].copy()
-            
-            # فلترة العقود ذات السيولة الضعيفة
-            df_opts = df_opts[df_opts['ask'] > 0.05].copy()
+            # فلترة العقود القريبة جداً من سعر السهم الحالي (النطاق النشط)
+            opts = opts[(opts['strike'] >= current_s * 0.82) & (opts['strike'] <= current_s * 1.18)].copy()
+            opts = opts[opts['ask'] > 0.05].copy() # استبعاد العقود المعدومة
 
             results = []
-            
-            for idx, row in df_opts.iterrows():
+            price_change_tp = abs(tp_s - current_s)
+            price_change_sl = abs(current_s - sl_s)
+
+            for _, row in opts.iterrows():
                 strike = row['strike']
-                ask_price = row['ask'] # سعر شراء العقد الحالي
-                bid_price = row['bid']
+                ask = row['ask']
+                bid = row['bid']
                 volume = row['volume'] if not np.isnan(row['volume']) else 0
-                open_interest = row['openInterest'] if not np.isnan(row['openInterest']) else 0
+                oi = row['openInterest'] if not np.isnan(row['openInterest']) else 0
 
-                if ask_price <= 0:
-                    continue
+                # تقدير معامل الدلتا (Delta) بناءً على مدى توغل العقد في السعر ITM/OTM
+                moneness = (current_s - strike) if call_mode else (strike - current_s)
+                est_delta = min(0.85, max(0.15, 0.50 + (moneness / current_s) * 2.8))
 
-                # حساب التغير المتوقع في سعر السهم عند الهدف وعند الوقف
-                price_diff_tp = abs(tp_s - current_s)
-                price_diff_sl = abs(current_s - sl_s)
+                # حسابات العقد المستهدفة
+                opt_tp_price = ask + (price_change_tp * est_delta)
+                opt_sl_price = max(0.01, ask - (price_change_sl * est_delta))
 
-                # تقدير الدلتا التخمينية بناءً على القرب من السترايك (In The Money / Out Of The Money)
-                moneness = (current_s - strike) if is_call else (strike - current_s)
-                
-                # تقدير تقريبي للدلتا (Delta) لتحديد استجابة العقد
-                if moneness > 0: # ITM
-                    est_delta = min(0.85, 0.50 + (moneness / current_s) * 3)
-                else: # OTM
-                    est_delta = max(0.15, 0.50 + (moneness / current_s) * 3)
+                opt_profit = opt_tp_price - ask
+                opt_loss = ask - opt_sl_price
 
-                # ربح العقد عند هدف السهم (تقديري)
-                est_opt_tp = ask_price + (price_diff_tp * est_delta)
-                opt_profit = est_opt_tp - ask_price
-                opt_roi = (opt_profit / ask_price) * 100
-
-                # خسارة العقد عند وقف خسارة السهم (تقديري)
-                est_opt_sl = max(0.01, ask_price - (price_diff_sl * est_delta))
-                opt_loss = ask_price - est_opt_sl
-                opt_risk_pct = (opt_loss / ask_price) * 100
-
-                # نسبة العائد للمخاطرة للعقد (Risk/Reward Ratio)
+                roi_pct = (opt_profit / ask) * 100
+                risk_pct = (opt_loss / ask) * 100
                 rr_ratio = round(opt_profit / opt_loss, 2) if opt_loss > 0 else 0
+
+                # معادلة التقييم الكمي (Score) لتحديد العقد الأفضل
+                score = (roi_pct * 0.45) + (rr_ratio * 15) + (np.log1p(volume) * 2.5)
 
                 results.append({
                     "strike": strike,
-                    "ask": ask_price,
-                    "bid": bid_price,
+                    "ask": ask,
+                    "bid": bid,
                     "volume": int(volume),
-                    "openInterest": int(open_interest),
-                    "est_delta": round(est_delta, 2),
-                    "opt_tp_price": round(est_opt_tp, 2),
-                    "opt_sl_price": round(est_opt_sl, 2),
-                    "opt_roi": round(opt_roi, 1),
-                    "opt_risk_pct": round(opt_risk_pct, 1),
-                    "rr_ratio": rr_ratio,
-                    "score": (opt_roi * 0.4) + (rr_ratio * 20) + (np.log1p(volume) * 2) # معادلة تفضيل السيولة والربحية
+                    "openInterest": int(oi),
+                    "delta": round(est_delta, 2),
+                    "opt_tp": round(opt_tp_price, 2),
+                    "opt_sl": round(opt_sl_price, 2),
+                    "roi": round(roi_pct, 1),
+                    "risk": round(risk_pct, 1),
+                    "rr": rr_ratio,
+                    "score": score
                 })
 
-            res_df = pd.DataFrame(results)
-            if not res_df.empty:
-                res_df = res_df.sort_values(by="score", ascending=False)
-            return res_df
-
-        except Exception as e:
-            st.error(f"خطأ أثناء جلب سلسلة العقود: {str(e)}")
+            df_res = pd.DataFrame(results)
+            return df_res.sort_values(by="score", ascending=False) if not df_res.empty else None
+        except Exception:
             return None
 
     # -------------------------------------------------------------
-    # 4. عرض النتائج والعقد الأفضل
+    # 5. عرض الواجهة الرئيسية Dashboard
     # -------------------------------------------------------------
-    is_call_trade = "CALL" in trade_type
-    
-    st.title(f"⚡ تحليل عقود الأوبشن الحية: {symbol}")
-    st.caption(f"تاريخ الانتهاء المحدد: **{selected_exp}** | سعر السهم اللحظي: **${live_price:.2f}**")
-
-    opts_df = analyze_live_options(ticker_obj, selected_exp, live_price, target_price, stop_loss, is_call_trade)
-
-    if opts_df is not None and not opts_df.empty:
-        best_opt = opts_df.iloc[0] # العقد ذو النتيجة الأعلى
-
-        # كارت العقد الموصى به
-        st.markdown(f"""
-        <div class="best-card">
-            <h3 style="margin:0; color:#58a6ff;">🏆 العقد الأفضل الموصى به (Best Choice)</h3>
-            <div style="font-size:1.6rem; font-weight:bold; margin:10px 0; color:#f0f6fc;">
-                {symbol} ${best_opt['strike']} {'CALL' if is_call_trade else 'PUT'} — Exp: {selected_exp}
+    # الهيدر العلوي
+    st.markdown(f"""
+    <div class="terminal-header">
+        <div style="display: flex; justify-content: space-between; align-items: center;">
+            <div>
+                <h1 style="margin:0; font-size: 2rem; color: #f0f6fc;">غرفة صفقات الأوبشن الكمية: <span style="color:#58a6ff;">{symbol}</span></h1>
+                <p style="margin:5px 0 0 0; color:#8b949e;">تحليل حظي لسلسلة العقود والمفاضلة بين السترايكات بناءً على أهدافك الفنية</p>
             </div>
-            <p style="margin:0; color:#8b949e;">
-                سعر الشراء الحالي (Ask): <b style="color:#f0f6fc;">${best_opt['ask']:.2f}</b> (${best_opt['ask']*100:.0f} للعقد) | 
-                السيولة (Volume): <b style="color:#f0f6fc;">{best_opt['volume']}</b> | 
-                الدلتا التقريبية: <b style="color:#f0f6fc;">{best_opt['est_delta']}</b>
+            <div style="text-align: right;">
+                <span style="font-size: 0.9rem; color: #8b949e;">سعر السهم الحالي</span>
+                <div style="font-size: 1.8rem; font-weight: bold; color: #f0f6fc;">${live_price:.2f}</div>
+            </div>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+
+    # جلب ومعالجة البيانات
+    options_df = process_options_chain(ticker_obj, selected_exp, live_price, target_price, stop_loss, is_call)
+
+    if options_df is not None and not options_df.empty:
+        best = options_df.iloc[0]
+
+        # كارت العقد الأفضل الموصى به (Hero Recommendation Card)
+        st.markdown(f"""
+        <div class="hero-card">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+                <span class="badge-recommend">🏆 العقد الأفضل أداءً وتوازناً (Best Contract)</span>
+                <span style="color: #8b949e; font-size: 0.9rem;">تاريخ الانتهاء: <b>{selected_exp}</b></span>
+            </div>
+            <div style="font-size: 2.2rem; font-weight: 800; color: #f0f6fc; margin-bottom: 8px;">
+                {symbol} ${best['strike']:.1f} {'CALL' if is_call else 'PUT'}
+            </div>
+            <p style="margin:0; color: #8b949e; font-size: 0.95rem;">
+                سعر شراء العقد (Ask): <b style="color:#f0f6fc;">${best['ask']:.2f}</b> (${best['ask']*100:.0f} لكل عقد) | 
+                السيولة (Volume): <b style="color:#f0f6fc;">{best['volume']:,}</b> | 
+                الدلتا التقديرية: <b style="color:#f0f6fc;">{best['delta']}</b>
             </p>
         </div>
         """, unsafe_allow_html=True)
 
-        # تفاصيل أهداف العقد المختار
-        c1, c2, c3, c4 = st.columns(4)
-        c1.markdown(f'<div class="metric-card"><div class="metric-label">هدف العقد عند TP السهم</div><div class="metric-val" style="color:#2ea043;">${best_opt["opt_tp_price"]:.2f} (+{best_opt["opt_roi"]}%)</div></div>', unsafe_allow_html=True)
-        c2.markdown(f'<div class="metric-card"><div class="metric-label">وقف العقد عند SL السهم</div><div class="metric-val" style="color:#da3633;">${best_opt["opt_sl_price"]:.2f} (-{best_opt["opt_risk_pct"]}%)</div></div>', unsafe_allow_html=True)
-        c3.markdown(f'<div class="metric-card"><div class="metric-label">نسبة العائد / المخاطرة</div><div class="metric-val" style="color:#58a6ff;">1:{best_opt["rr_ratio"]}</div></div>', unsafe_allow_html=True)
-        c4.markdown(f'<div class="metric-card"><div class="metric-label">الربح الصافي المتوقع / عقد</div><div class="metric-val" style="color:#2ea043;">+${(best_opt["opt_tp_price"] - best_opt["ask"])*100:.0f}</div></div>', unsafe_allow_html=True)
+        # بطاقات المقاييس الأربعة
+        m1, m2, m3, m4 = st.columns(4)
+        m1.markdown(f'<div class="stat-card"><div class="stat-label">سعر بيع العقد المستهدف (TP)</div><div class="stat-val-green">${best["opt_tp"]:.2f} (+{best["roi"]}%)</div></div>', unsafe_allow_html=True)
+        m2.markdown(f'<div class="stat-card"><div class="stat-label">سعر وقف خسارة العقد (SL)</div><div class="stat-val-red">${best["opt_sl"]:.2f} (-{best["risk"]}%)</div></div>', unsafe_allow_html=True)
+        m3.markdown(f'<div class="stat-card"><div class="stat-label">نسبة العائد للمخاطرة (R:R)</div><div class="stat-val-blue">1:{best["rr"]}</div></div>', unsafe_allow_html=True)
+        m4.markdown(f'<div class="stat-card"><div class="stat-label">الربح الصافي المتوقع / عقد</div><div class="stat-val-green">+${(best["opt_tp"] - best["ask"])*100:.0f}</div></div>', unsafe_allow_html=True)
 
         st.markdown("<br>", unsafe_allow_html=True)
-        st.subheader("📋 قائمة باقي السترايكات المتاحة والمفاضلة بينها:")
 
-        # عرض الجدول كاملاً للمقارنة
-        display_df = opts_df[['strike', 'ask', 'bid', 'est_delta', 'opt_tp_price', 'opt_roi', 'opt_risk_pct', 'rr_ratio', 'volume']].copy()
-        display_df.columns = ['السترايك (Strike)', 'سعر الشراء (Ask)', 'سعر البيع (Bid)', 'Delta', 'هدف العقد ($)', 'نسبة الربح المتوقعة (%)', 'مخاطرة الوقف (%)', 'العائد/المخاطرة', 'حجم التداول (Volume)']
-        
-        st.dataframe(display_df, use_container_width=True)
+        # تقسيم الشاشة إلى تبويبات (Tabs) لتنظيم العرض
+        tab_chart, tab_table = st.tabs(["📈 الرسم البياني والمستهدفات", "📋 جدول مفاضلة باقي العقود"])
+
+        with tab_chart:
+            # رسم بياني تفاعلي باستخدام Plotly
+            fig = go.Figure()
+
+            # شموع السعر
+            fig.add_trace(go.Candlestick(
+                x=price_hist.index,
+                open=price_hist['Open'],
+                high=price_hist['High'],
+                low=price_hist['Low'],
+                close=price_hist['Close'],
+                name="السعر"
+            ))
+
+            # خط الهدف Take Profit
+            fig.add_hline(
+                y=target_price, line_dash="dash", line_color="#3fb950", line_width=2,
+                annotation_text=f"الهدف TP (${target_price})", annotation_position="top right"
+            )
+
+            # خط وقف الخسارة Stop Loss
+            fig.add_hline(
+                y=stop_loss, line_dash="dash", line_color="#f85149", line_width=2,
+                annotation_text=f"الوقف SL (${stop_loss})", annotation_position="bottom right"
+            )
+
+            fig.update_layout(
+                template="plotly_dark",
+                height=480,
+                paper_bgcolor="#0b0e14",
+                plot_bgcolor="#0b0e14",
+                margin=dict(l=10, r=10, t=30, b=10),
+                xaxis_rangeslider_visible=False
+            )
+            st.plotly_chart(fig, use_container_width=True)
+
+        with tab_table:
+            # عرض الجدول الكامل بشكل أنيق
+            st.caption("مقارنة كافة السترايكات المتاحة مرتبة من الأعلى تفضيلاً بناءً على السيولة والعائد للمخاطرة:")
+            
+            clean_df = options_df[['strike', 'ask', 'bid', 'delta', 'opt_tp', 'roi', 'opt_sl', 'risk', 'rr', 'volume']].copy()
+            clean_df.columns = [
+                'السترايك (Strike)', 'سعر الشراء (Ask)', 'سعر البيع (Bid)', 
+                'Delta', 'هدف العقد ($)', 'الربح المتوقع (%)', 
+                'وقف العقد ($)', 'المخاطرة (%)', 'العائد/المخاطرة', 'حجم التداول'
+            ]
+            
+            st.dataframe(
+                clean_df.style.highlight_max(subset=['الربح المتوقع (%)'], color='#1e3a29')
+                              .highlight_min(subset=['المخاطرة (%)'], color='#1e3a29'),
+                use_container_width=True,
+                height=400
+            )
 
     else:
-        st.warning("لم يتم العثور على عقود تلبّي شروط السيولة في هذا التاريخ. اختر تاريخ انتهاء آخر من الشريط الجانبي.")
+        st.warning("لم يتم العثور على عقود تلبّي الشروط للتاريخ المحدد. جرب اختيار تاريخ انتهاء آخر من الشريط الجانبي.")
