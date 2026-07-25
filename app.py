@@ -7,6 +7,15 @@ from plotly.subplots import make_subplots
 from scipy.signal import find_peaks
 from sklearn.ensemble import RandomForestClassifier
 from datetime import date
+import requests
+
+# -------------------------------------------------------------
+# 0. Custom Session to Prevent Yahoo Finance Blocking
+# -------------------------------------------------------------
+session = requests.Session()
+session.headers.update({
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+})
 
 # -------------------------------------------------------------
 # 1. Page Configuration & Dark Theme CSS
@@ -111,7 +120,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # -------------------------------------------------------------
-# 2. Indicators & Pure Live Data Engine (No Mock Data)
+# 2. Indicators & Robust Live Data Engine
 # -------------------------------------------------------------
 def compute_indicators(df):
     df = df.copy()
@@ -138,10 +147,10 @@ def compute_indicators(df):
 @st.cache_data(ttl=60)
 def fetch_live_data(ticker_symbol, timeframe="6m"):
     try:
-        ticker = yf.Ticker(ticker_symbol)
+        ticker = yf.Ticker(ticker_symbol, session=session)
         df = ticker.history(period=timeframe)
         if df is None or df.empty:
-            df = yf.download(ticker_symbol, period=timeframe, progress=False)
+            df = yf.download(ticker_symbol, period=timeframe, progress=False, session=session)
             
         if df is not None and not df.empty:
             if isinstance(df.columns, pd.MultiIndex):
@@ -206,7 +215,7 @@ def run_ml_and_backtest(df, ml_threshold=0.52, initial_capital=10000):
     }
 
 # -------------------------------------------------------------
-# 4. Pattern Recognition (Unambiguous)
+# 4. Pattern Recognition
 # -------------------------------------------------------------
 def detect_patterns(df):
     closes = df['Close'].values
@@ -355,4 +364,4 @@ elif nav == "⚙️ الإعدادات":
         <h1 style="color: #f8fafc; font-weight: 800; margin-bottom: 0px;">إعدادات النظام</h1>
         <p style="color: #94a3b8; font-size: 0.95rem; margin-top: 4px; margin-bottom: 24px;">تكوين منصة التحليل الكمي</p>
     """, unsafe_allow_html=True)
-    st.markdown('<div class="terminal-card"><h3>تفاصيل المحرك التقني الحصري</h3><p>• مصدر البيانات: حقيقي 100% عبر yfinance مباشرة (لا توجد بيانات وهمية).</p><p>• نموذج الـ Machine Learning: Random Forest Classifier مدرب على مصفوفة مؤشرات عزم وسيولة (RSI, MACD, ATR, Volume).</p><p>• الباك تست: معتمد حصرياً على احتمالات تنبؤ الذكاء الاصطناعي (وليس تقاطع متوسطات بسيط).</p></div>', unsafe_allow_html=True)
+    st.markdown('<div class="terminal-card"><h3>تفاصيل المحرك التقني الحصري</h3><p>• مصدر البيانات: حقيقي 100% عبر yfinance مع تجاوز حظر الـ User-Agent.</p><p>• نموذج الـ Machine Learning: Random Forest Classifier مدرب على مصفوفة مؤشرات عزم وسيولة (RSI, MACD, ATR, Volume).</p><p>• الباك تست: معتمد حصرياً على احتمالات تنبؤ الذكاء الاصطناعي (وليس تقاطع متوسطات بسيط).</p></div>', unsafe_allow_html=True)
