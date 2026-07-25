@@ -4,6 +4,7 @@ import pandas as pd
 import numpy as np
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
+import requests
 
 # -------------------------------------------------------------
 # 1. Page Configuration & Professional Dark CSS
@@ -78,17 +79,25 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # -------------------------------------------------------------
-# 2. Resilient Data Engine
+# 2. Resilient Data Engine with Secure Session Headers
 # -------------------------------------------------------------
+def get_session():
+    session = requests.Session()
+    session.headers.update({
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36'
+    })
+    return session
+
 @st.cache_data(ttl=60)
 def fetch_stock_data(ticker_symbol, timeframe="6m"):
     df = pd.DataFrame()
     try:
-        ticker = yf.Ticker(ticker_symbol)
+        session = get_session()
+        ticker = yf.Ticker(ticker_symbol, session=session)
         df = ticker.history(period=timeframe)
         
         if df is None or df.empty:
-            df = yf.download(ticker_symbol, period=timeframe, progress=False)
+            df = yf.download(ticker_symbol, period=timeframe, progress=False, session=session)
             
         if df is None or df.empty:
             return None, 0.0, 0.0
@@ -109,7 +118,8 @@ def fetch_stock_data(ticker_symbol, timeframe="6m"):
 
 def fetch_options_chain(ticker_symbol):
     try:
-        ticker = yf.Ticker(ticker_symbol)
+        session = get_session()
+        ticker = yf.Ticker(ticker_symbol, session=session)
         expirations = list(ticker.options)
         return ticker, expirations
     except Exception:
@@ -197,7 +207,7 @@ def run_backtest(df, fast_ma, slow_ma, initial_capital=10000):
 # 5. Application Controls & Sidebar
 # -------------------------------------------------------------
 st.sidebar.markdown("## ⚡ Quant Terminal")
-symbol = st.sidebar.text_input("Asset Ticker Symbol:", value="AMD").upper().strip()
+symbol = st.sidebar.text_input("Asset Ticker Symbol:", value="NVDA").upper().strip()
 
 stock_df, live_price, atr_val = fetch_stock_data(symbol)
 
@@ -225,7 +235,7 @@ with view_mode[0]:
     </div>
     """, unsafe_allow_html=True)
     
-    if stock_df is not None:
+    if stock_df is not None and not stock_df.empty:
         detected_patterns = detect_patterns(stock_df)
         st.markdown("### 🔍 Live Chart Pattern Recognition")
         col_p1, col_p2 = st.columns([2, 1])
