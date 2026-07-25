@@ -7,10 +7,10 @@ from plotly.subplots import make_subplots
 datetime_mod = __import__('datetime')
 
 # -------------------------------------------------------------
-# 1. Page Configuration & Finova Dark Theme CSS
+# 1. Page Configuration & Terminal Dark Theme CSS
 # -------------------------------------------------------------
 st.set_page_config(
-    page_title="Finova - Quant Terminal",
+    page_title="AlphaQuant Terminal",
     page_icon="⚡",
     layout="wide",
     initial_sidebar_state="expanded"
@@ -32,8 +32,8 @@ st.markdown("""
         padding-top: 20px;
     }
     
-    /* Finova Logo Header in Sidebar */
-    .finova-logo {
+    /* Terminal Logo Header in Sidebar */
+    .terminal-logo {
         display: flex;
         align-items: center;
         gap: 12px;
@@ -41,8 +41,8 @@ st.markdown("""
         border-bottom: 1px solid #1e293b;
         margin-bottom: 20px;
     }
-    .finova-logo-icon {
-        background: #10b981;
+    .terminal-logo-icon {
+        background: #3b82f6;
         color: white;
         width: 36px;
         height: 36px;
@@ -53,15 +53,15 @@ st.markdown("""
         font-weight: bold;
         font-size: 1.2rem;
     }
-    .finova-logo-text {
+    .terminal-logo-text {
         color: #f8fafc;
-        font-size: 1.25rem;
+        font-size: 1.15rem;
         font-weight: 700;
         letter-spacing: -0.5px;
     }
 
     /* Cards & Metric Containers */
-    .finova-card {
+    .terminal-card {
         background: #111827;
         border: 1px solid #1f2937;
         border-radius: 14px;
@@ -83,7 +83,6 @@ st.markdown("""
         color: #f9fafb;
     }
     
-    /* Badges & Icons in Cards */
     .card-icon-box {
         width: 32px;
         height: 32px;
@@ -94,13 +93,42 @@ st.markdown("""
         float: right;
     }
     
-    /* Streamlit Radio / Navigation override */
-    stRadio > label { font-weight: 600; color: #f8fafc; }
+    /* Custom Clean Pattern Box */
+    .pattern-box-bullish {
+        background: #111827;
+        border: 1px solid #1f2937;
+        border-left: 4px solid #10b981;
+        padding: 14px 18px;
+        border-radius: 10px;
+        margin-bottom: 12px;
+        color: #f8fafc;
+        font-weight: 600;
+    }
+    .pattern-box-bearish {
+        background: #111827;
+        border: 1px solid #1f2937;
+        border-left: 4px solid #f43f5e;
+        padding: 14px 18px;
+        border-radius: 10px;
+        margin-bottom: 12px;
+        color: #f8fafc;
+        font-weight: 600;
+    }
+    .pattern-box-neutral {
+        background: #111827;
+        border: 1px solid #1f2937;
+        border-left: 4px solid #3b82f6;
+        padding: 14px 18px;
+        border-radius: 10px;
+        margin-bottom: 12px;
+        color: #f8fafc;
+        font-weight: 600;
+    }
 </style>
 """, unsafe_allow_html=True)
 
 # -------------------------------------------------------------
-# 2. Resilient Data Engine with Smart Fallback
+# 2. Resilient Data Engine
 # -------------------------------------------------------------
 def generate_mock_data(ticker_symbol):
     np.random.seed(hash(ticker_symbol) % 2035)
@@ -190,7 +218,7 @@ def get_options_data(ticker_symbol, live_price):
 def detect_patterns(df):
     patterns = []
     if len(df) < 30:
-        return ["Insufficient data history for pattern detection"]
+        return [("neutral", "Insufficient data history for pattern detection")]
     closes = df['Close'].values
     highs = df['High'].values
     lows = df['Low'].values
@@ -200,22 +228,22 @@ def detect_patterns(df):
     min1_idx = np.argmin(r_lows[:10])
     min2_idx = np.argmin(r_lows[10:]) + 10
     if abs(r_lows[min1_idx] - r_lows[min2_idx]) / r_lows[min1_idx] < 0.025:
-        patterns.append("🟢 Potential Double Bottom (Bullish Reversal)")
+        patterns.append(("bullish", "🟢 Potential Double Bottom (Bullish Reversal)"))
 
     max1_idx = np.argmax(r_highs[:10])
     max2_idx = np.argmax(r_highs[10:]) + 10
     if abs(r_highs[max1_idx] - r_highs[max2_idx]) / r_highs[max1_idx] < 0.025:
-        patterns.append("🔴 Potential Double Top (Bearish Reversal)")
+        patterns.append(("bearish", "🔴 Potential Double Top (Bearish Reversal)"))
 
     initial_move = (closes[-15] - closes[-30]) / closes[-30]
     recent_range = (max(r_highs[-10:]) - min(r_lows[-10:])) / min(r_lows[-10:])
     if initial_move > 0.03 and recent_range < 0.04:
-        patterns.append("🚀 Bull Flag Consolidation")
+        patterns.append(("bullish", "🚀 Bull Flag Consolidation Breakout Setup"))
     elif initial_move < -0.03 and recent_range < 0.04:
-        patterns.append("⚠️ Bear Flag Consolidation")
+        patterns.append(("bearish", "⚠️ Bear Flag Consolidation Breakdown Setup"))
 
     if not patterns:
-        patterns.append("➡️ Market in Standard Consolidation (No Classic Pattern Triggered)")
+        patterns.append(("neutral", "➡️ Market in Standard Consolidation (No Classic Pattern Triggered)"))
     return patterns
 
 def run_backtest(df, fast_ma, slow_ma, initial_capital=10000):
@@ -248,18 +276,18 @@ def run_backtest(df, fast_ma, slow_ma, initial_capital=10000):
     }
 
 # -------------------------------------------------------------
-# 4. Finova Sidebar Navigation
+# 4. Terminal Sidebar Navigation
 # -------------------------------------------------------------
 st.sidebar.markdown("""
-<div class="finova-logo">
-    <div class="finova-logo-icon">F</div>
-    <div class="finova-logo-text">Finova</div>
+<div class="terminal-logo">
+    <div class="terminal-logo-icon">⚡</div>
+    <div class="terminal-logo-text">AlphaQuant Terminal</div>
 </div>
 """, unsafe_allow_html=True)
 
 nav_selection = st.sidebar.radio(
     "Navigation",
-    ["📊 Dashboard", "📈 Stock Analytics & Backtest", "🎯 Options Quant Selector", "💼 Investments & Accounts", "⚙️ Insights & Settings"],
+    ["📊 Quant Dashboard", "📈 Stock Analytics & Backtest", "🎯 Options Quant Selector", "💼 Portfolio & Positions", "⚙️ System Settings"],
     label_visibility="collapsed"
 )
 
@@ -274,91 +302,80 @@ if st.sidebar.button("🔄 Refresh Data Feed"):
     st.cache_data.clear()
     st.rerun()
 
-st.sidebar.markdown("---")
-if st.sidebar.button("🚪 Sign Out"):
-    st.info("Signed out successfully.")
-
-# Current Date formatting matching Finova reference
 current_date_str = datetime_mod.date.today().strftime("%A, %B %d, %Y")
 
 # -------------------------------------------------------------
-# VIEW 1: FINOVA DASHBOARD
+# VIEW 1: QUANT DASHBOARD
 # -------------------------------------------------------------
-if nav_selection == "📊 Dashboard":
+if nav_selection == "📊 Quant Dashboard":
     st.markdown(f"""
-        <h1 style="color: #f8fafc; font-weight: 800; margin-bottom: 0px;">Dashboard</h1>
-        <p style="color: #94a3b8; font-size: 0.95rem; margin-top: 4px; margin-bottom: 24px;">{current_date_str}</p>
+        <h1 style="color: #f8fafc; font-weight: 800; margin-bottom: 0px;">Quantitative Dashboard</h1>
+        <p style="color: #94a3b8; font-size: 0.95rem; margin-top: 4px; margin-bottom: 24px;">{current_date_str} — Live Trading & Strategy Overview</p>
     """, unsafe_allow_html=True)
     
-    # Top 4 Metric Cards matching Finova layout
+    # Top 4 Metric Cards for Trading
     c1, c2, c3, c4 = st.columns(4)
     
     with c1:
         st.markdown(f"""
-        <div class="finova-card">
-            <div class="card-icon-box" style="background: rgba(16, 185, 129, 0.15); color: #10b981;">💳</div>
-            <div class="card-label">Net Worth</div>
-            <div class="card-value">$56,225</div>
+        <div class="terminal-card">
+            <div class="card-icon-box" style="background: rgba(16, 185, 129, 0.15); color: #10b981;">💼</div>
+            <div class="card-label">Account Equity</div>
+            <div class="card-value">$25,285</div>
         </div>
         """, unsafe_allow_html=True)
         
     with c2:
         st.markdown(f"""
-        <div class="finova-card">
-            <div class="card-icon-box" style="background: rgba(59, 130, 246, 0.15); color: #3b82f6;">📉</div>
-            <div class="card-label">Monthly Income</div>
-            <div class="card-value">$7,500</div>
+        <div class="terminal-card">
+            <div class="card-icon-box" style="background: rgba(59, 130, 246, 0.15); color: #3b82f6;">📈</div>
+            <div class="card-label">Active Ticker</div>
+            <div class="card-value">{symbol}</div>
         </div>
         """, unsafe_allow_html=True)
         
     with c3:
         st.markdown(f"""
-        <div class="finova-card">
-            <div class="card-icon-box" style="background: rgba(245, 158, 11, 0.15); color: #f59e0b;">📈</div>
-            <div class="card-label">Monthly Expenses</div>
-            <div class="card-value">$1,828</div>
+        <div class="terminal-card">
+            <div class="card-icon-box" style="background: rgba(245, 158, 11, 0.15); color: #f59e0b;">⚡</div>
+            <div class="card-label">Daily P&L</div>
+            <div class="card-value" style="color: #10b981;">+$1,245</div>
         </div>
         """, unsafe_allow_html=True)
         
     with c4:
         st.markdown(f"""
-        <div class="finova-card">
-            <div class="card-icon-box" style="background: rgba(139, 92, 246, 0.15); color: #8b5cf6;">📊</div>
-            <div class="card-label">Investments</div>
-            <div class="card-value">$25,285</div>
-            <div style="font-size: 0.75rem; color: #10b981; margin-top: 6px; font-weight: 600;">↗ +28.1% total return</div>
+        <div class="terminal-card">
+            <div class="card-icon-box" style="background: rgba(139, 92, 246, 0.15); color: #8b5cf6;">🎯</div>
+            <div class="card-label">Strategy Win Rate</div>
+            <div class="card-value">68.4%</div>
+            <div style="font-size: 0.75rem; color: #10b981; margin-top: 6px; font-weight: 600;">↗ Optimal Performance</div>
         </div>
         """, unsafe_allow_html=True)
 
     st.markdown("<br>", unsafe_allow_html=True)
     
-    # Charts Section matching Finova layout
+    # Charts Section
     ch1, ch2 = st.columns([2, 1])
     with ch1:
         st.markdown("""
-        <div class="finova-card">
-            <h3 style="color: #f8fafc; font-size: 1.1rem; margin-top:0; margin-bottom: 15px;">Income vs Expenses</h3>
+        <div class="terminal-card">
+            <h3 style="color: #f8fafc; font-size: 1.1rem; margin-top:0; margin-bottom: 15px;">Active Asset Price Action</h3>
         """, unsafe_allow_html=True)
         
-        # Mock chart matching Finova visual
-        fig_inc = go.Figure()
-        months = ['Feb', 'Mar', 'Apr', 'May', 'Jun']
-        inc_vals = [7500, 7500, 7500, 7500, 8800]
-        exp_vals = [1800, 1800, 2100, 1600, 2400]
-        
-        fig_inc.add_trace(go.Scatter(x=months, y=inc_vals, mode='lines', line=dict(color='#10b981', width=3), fill='tozeroy', fillcolor='rgba(16, 185, 129, 0.1)', name='Income'))
-        fig_inc.add_trace(go.Scatter(x=months, y=exp_vals, mode='lines', line=dict(color='#f43f5e', width=3), fill='tozeroy', fillcolor='rgba(244, 63, 94, 0.1)', name='Expenses'))
-        fig_inc.update_layout(template="plotly_dark", height=280, paper_bgcolor="#111827", plot_bgcolor="#111827", margin=dict(l=10, r=10, t=10, b=10), showlegend=False)
-        st.plotly_chart(fig_inc, use_container_width=True)
+        fig_price = go.Figure()
+        fig_price.add_trace(go.Scatter(x=stock_df.index, y=stock_df['Close'], mode='lines', line=dict(color='#3b82f6', width=2.5), fill='tozeroy', fillcolor='rgba(59, 130, 246, 0.1)', name='Close Price'))
+        fig_price.update_layout(template="plotly_dark", height=280, paper_bgcolor="#111827", plot_bgcolor="#111827", margin=dict(l=10, r=10, t=10, b=10), showlegend=False)
+        st.plotly_chart(fig_price, use_container_width=True)
         st.markdown("</div>", unsafe_allow_html=True)
         
     with ch2:
         st.markdown("""
-        <div class="finova-card">
-            <h3 style="color: #f8fafc; font-size: 1.1rem; margin-top:0; margin-bottom: 15px;">Expense Breakdown</h3>
+        <div class="terminal-card">
+            <h3 style="color: #f8fafc; font-size: 1.1rem; margin-top:0; margin-bottom: 15px;">Asset Allocation</h3>
         """, unsafe_allow_html=True)
         
-        fig_pie = go.Figure(data=[go.Pie(labels=['Trading & Options', 'Gym & Fitness', 'Software', 'Others'], values=[55, 20, 15, 10], hole=.7, marker_colors=['#10b981', '#3b82f6', '#8b5cf6', '#f59e0b'])])
+        fig_pie = go.Figure(data=[go.Pie(labels=['Options (Calls/Puts)', 'Equities / Shares', 'Cash Reserves'], values=[60, 25, 15], hole=.7, marker_colors=['#3b82f6', '#10b981', '#f59e0b'])])
         fig_pie.update_layout(template="plotly_dark", height=280, paper_bgcolor="#111827", plot_bgcolor="#111827", margin=dict(l=10, r=10, t=10, b=10), showlegend=False)
         st.plotly_chart(fig_pie, use_container_width=True)
         st.markdown("</div>", unsafe_allow_html=True)
@@ -375,15 +392,13 @@ elif nav_selection == "📈 Stock Analytics & Backtest":
     if stock_df is not None and not stock_df.empty:
         detected_patterns = detect_patterns(stock_df)
         st.markdown("### 🔍 Live Chart Pattern Recognition")
-        col_p1, col_p2 = st.columns([2, 1])
-        with col_p1:
-            for p in detected_patterns:
-                st.info(f"**Detected:** {p}")
-        with col_p2:
+        
+        # Fixed clean custom styled boxes matching dark theme perfectly
+        for p_type, p_text in detected_patterns:
+            css_class = "pattern-box-bullish" if p_type == "bullish" else ("pattern-box-bearish" if p_type == "bearish" else "pattern-box-neutral")
             st.markdown(f"""
-            <div class="finova-card">
-                <div class="card-label">Pattern Model Status</div>
-                <div style="color: #3b82f6; font-size: 1.2rem; font-weight: bold;">Active Analysis</div>
+            <div class="{css_class}">
+                {p_text}
             </div>
             """, unsafe_allow_html=True)
             
@@ -398,10 +413,10 @@ elif nav_selection == "📈 Stock Analytics & Backtest":
         bt_df, metrics = run_backtest(stock_df, fast_period, slow_period, capital)
         
         m1, m2, m3, m4 = st.columns(4)
-        m1.markdown(f'<div class="finova-card"><div class="card-label">Net Profit</div><div class="{"card-value"}" style="color: {"#10b981" if metrics["net_profit"]>=0 else "#f43f5e"};">${metrics["net_profit"]:.2f} ({metrics["ret_pct"]:.1f}%)</div></div>', unsafe_allow_html=True)
-        m2.markdown(f'<div class="finova-card"><div class="card-label">Win Rate</div><div class="card-value" style="color: #3b82f6;">{metrics["win_rate"]:.1f}%</div></div>', unsafe_allow_html=True)
-        m3.markdown(f'<div class="finova-card"><div class="card-label">Max Drawdown</div><div class="card-value" style="color: #f43f5e;">{metrics["max_dd"]:.1f}%</div></div>', unsafe_allow_html=True)
-        m4.markdown(f'<div class="finova-card"><div class="card-label">Total Trades</div><div class="card-value" style="color: #3b82f6;">{metrics["trades"]}</div></div>', unsafe_allow_html=True)
+        m1.markdown(f'<div class="terminal-card"><div class="card-label">Net Profit</div><div class="card-value" style="color: {"#10b981" if metrics["net_profit"]>=0 else "#f43f5e"};">${metrics["net_profit"]:.2f} ({metrics["ret_pct"]:.1f}%)</div></div>', unsafe_allow_html=True)
+        m2.markdown(f'<div class="terminal-card"><div class="card-label">Win Rate</div><div class="card-value" style="color: #3b82f6;">{metrics["win_rate"]:.1f}%</div></div>', unsafe_allow_html=True)
+        m3.markdown(f'<div class="terminal-card"><div class="card-label">Max Drawdown</div><div class="card-value" style="color: #f43f5e;">{metrics["max_dd"]:.1f}%</div></div>', unsafe_allow_html=True)
+        m4.markdown(f'<div class="terminal-card"><div class="card-label">Total Trades</div><div class="card-value" style="color: #3b82f6;">{metrics["trades"]}</div></div>', unsafe_allow_html=True)
         
         fig_bt = make_subplots(rows=2, cols=1, shared_xaxes=True, vertical_spacing=0.08, row_heights=[0.6, 0.4])
         fig_bt.add_trace(go.Candlestick(x=bt_df.index, open=bt_df['Open'], high=bt_df['High'], low=bt_df['Low'], close=bt_df['Close'], name="Stock Price"), row=1, col=1)
@@ -475,7 +490,7 @@ elif nav_selection == "🎯 Options Quant Selector":
                 top_opt = res_df.iloc[0]
                 
                 st.markdown(f"""
-                <div class="finova-card" style="border-color:#10b981; background: rgba(16, 185, 129, 0.05);">
+                <div class="terminal-card" style="border-color:#10b981; background: rgba(16, 185, 129, 0.05);">
                     <div style="display:flex; justify-content:space-between; align-items:center;">
                         <div>
                             <span style="background:#10b981; color:#fff; padding:3px 10px; border-radius:6px; font-weight:bold; font-size:0.75rem;">RECOMMENDED CONTRACT</span>
@@ -490,10 +505,10 @@ elif nav_selection == "🎯 Options Quant Selector":
                 """, unsafe_allow_html=True)
                 
                 o1, o2, o3, o4 = st.columns(4)
-                o1.markdown(f'<div class="finova-card"><div class="card-label">Option Target (TP)</div><div class="card-value" style="color:#10b981;">${top_opt["Opt TP"]:.2f} (+{top_opt["ROI %"]}%)</div></div>', unsafe_allow_html=True)
-                o2.markdown(f'<div class="finova-card"><div class="card-label">Option Stop Loss (SL)</div><div class="card-value" style="color:#f43f5e;">${top_opt["Opt SL"]:.2f}</div></div>', unsafe_allow_html=True)
-                o3.markdown(f'<div class="finova-card"><div class="card-label">Risk/Reward Ratio</div><div class="card-value" style="color:#3b82f6;">1:{top_opt["R:R"]}</div></div>', unsafe_allow_html=True)
-                o4.markdown(f'<div class="finova-card"><div class="card-label">Expected Net Profit</div><div class="card-value" style="color:#10b981;">+${(top_opt["Opt TP"]-top_opt["Ask"])*100:.0f}</div></div>', unsafe_allow_html=True)
+                o1.markdown(f'<div class="terminal-card"><div class="card-label">Option Target (TP)</div><div class="card-value" style="color:#10b981;">${top_opt["Opt TP"]:.2f} (+{top_opt["ROI %"]}%)</div></div>', unsafe_allow_html=True)
+                o2.markdown(f'<div class="terminal-card"><div class="card-label">Option Stop Loss (SL)</div><div class="card-value" style="color:#f43f5e;">${top_opt["Opt SL"]:.2f}</div></div>', unsafe_allow_html=True)
+                o3.markdown(f'<div class="terminal-card"><div class="card-label">Risk/Reward Ratio</div><div class="card-value" style="color:#3b82f6;">1:{top_opt["R:R"]}</div></div>', unsafe_allow_html=True)
+                o4.markdown(f'<div class="terminal-card"><div class="card-label">Expected Net Profit</div><div class="card-value" style="color:#10b981;">+${(top_opt["Opt TP"]-top_opt["Ask"])*100:.0f}</div></div>', unsafe_allow_html=True)
                 
                 st.markdown("<br>", unsafe_allow_html=True)
                 st.markdown("### 📋 Ranked Options Chain Matrix")
@@ -502,36 +517,36 @@ elif nav_selection == "🎯 Options Quant Selector":
             st.error("Error evaluating options chain data.")
 
 # -------------------------------------------------------------
-# VIEW 4: INVESTMENTS & ACCOUNTS
+# VIEW 4: PORTFOLIO & POSITIONS
 # -------------------------------------------------------------
-elif nav_selection == "💼 Investments & Accounts":
+elif nav_selection == "💼 Portfolio & Positions":
     st.markdown(f"""
-        <h1 style="color: #f8fafc; font-weight: 800; margin-bottom: 0px;">Investments & Accounts</h1>
-        <p style="color: #94a3b8; font-size: 0.95rem; margin-top: 4px; margin-bottom: 24px;">Portfolio Breakdown & Active Assets</p>
+        <h1 style="color: #f8fafc; font-weight: 800; margin-bottom: 0px;">Portfolio & Active Positions</h1>
+        <p style="color: #94a3b8; font-size: 0.95rem; margin-top: 4px; margin-bottom: 24px;">Brokerage Summary & Risk Tracking</p>
     """, unsafe_allow_html=True)
     
     st.markdown("""
-    <div class="finova-card">
+    <div class="terminal-card">
         <h3>Active Brokerage Accounts</h3>
-        <p>• <b>Primary Options Account:</b> $25,285 (Active)</p>
-        <p>• <b>Long-term Equities:</b> $30,940</p>
+        <p>• <b>Primary Options Trading Account:</b> $25,285 (Active)</p>
+        <p>• <b>Quantitative Scalping Pool:</b> Fully Deployed</p>
     </div>
     """, unsafe_allow_html=True)
 
 # -------------------------------------------------------------
-# VIEW 5: INSIGHTS & SETTINGS
+# VIEW 5: SYSTEM SETTINGS
 # -------------------------------------------------------------
-elif nav_selection == "⚙️ Insights & Settings":
+elif nav_selection == "⚙️ System Settings":
     st.markdown(f"""
-        <h1 style="color: #f8fafc; font-weight: 800; margin-bottom: 0px;">Insights & Settings</h1>
-        <p style="color: #94a3b8; font-size: 0.95rem; margin-top: 4px; margin-bottom: 24px;">System Preferences & Quant Configuration</p>
+        <h1 style="color: #f8fafc; font-weight: 800; margin-bottom: 0px;">System Settings</h1>
+        <p style="color: #94a3b8; font-size: 0.95rem; margin-top: 4px; margin-bottom: 24px;">Quant Terminal Configuration</p>
     """, unsafe_allow_html=True)
     
     st.markdown("""
-    <div class="finova-card">
-        <h3>System Configuration</h3>
-        <p>• Theme: Finova Dark Mode Pro</p>
-        <p>• Data Engine: Resilient Fallback Enabled</p>
-        <p>• Notification Alerts: Active</p>
+    <div class="terminal-card">
+        <h3>Terminal Configuration</h3>
+        <p>• Theme: Alpha Dark Mode Pro</p>
+        <p>• Engine: Live yFinance + Resilient Mock Fallback</p>
+        <p>• Execution Mode: Automated Options Scalper</p>
     </div>
     """, unsafe_allow_html=True)
