@@ -3,185 +3,188 @@ import yfinance as yf
 import pandas as pd
 import numpy as np
 import plotly.graph_objects as go
-from plotly.subplots import make_subplots
-
-from sklearn.ensemble import RandomForestClassifier
-from sklearn.model_selection import train_test_split
 
 # -------------------------------------------------------------
-# 1. تهيئة الواجهة Visual Setup
+# 1. تهيئة الصفحة والتصميم
 # -------------------------------------------------------------
-st.set_page_config(page_title="Institutional AI & Options Quant Terminal", layout="wide")
+st.set_page_config(page_title="Live Options Finder Terminal", layout="wide")
 
 st.markdown("""
 <style>
     .stApp { background-color: #0d1117; color: #c9d1d9; }
-    .metric-card { background: #161b22; border: 1px solid #30363d; border-radius: 8px; padding: 12px; text-align: center; }
+    .best-card {
+        background: linear-gradient(135deg, #1f242d 0%, #161b22 100%);
+        border: 2px solid #58a6ff; border-radius: 12px; padding: 20px; margin-bottom: 20px;
+    }
+    .metric-card {
+        background: #161b22; border: 1px solid #30363d;
+        border-radius: 8px; padding: 12px; text-align: center;
+    }
     .metric-label { font-size: 0.8rem; color: #8b949e; margin-bottom: 4px; }
-    .metric-val { font-size: 1.2rem; font-weight: bold; color: #f0f6fc; }
-    .call-banner { background: rgba(46, 160, 67, 0.15); border: 2px solid #2ea043; border-radius: 10px; padding: 16px; margin-bottom: 15px; }
-    .put-banner { background: rgba(218, 54, 51, 0.15); border: 2px solid #da3633; border-radius: 10px; padding: 16px; margin-bottom: 15px; }
-    .wait-banner { background: rgba(139, 148, 158, 0.15); border: 1px solid #30363d; border-radius: 10px; padding: 16px; margin-bottom: 15px; }
+    .metric-val { font-size: 1.25rem; font-weight: bold; color: #f0f6fc; }
 </style>
 """, unsafe_allow_html=True)
 
 # -------------------------------------------------------------
-# 2. القائمة الجانبية وحاسبة الأوبشنز
+# 2. القائمة الجانبية وإدخال الهدف ووقف الخسارة
 # -------------------------------------------------------------
-st.sidebar.title("⚡ Options Quant Terminal")
-st.sidebar.caption("محرك تداول كمي بالذكاء الاصطناعي وحاسبة أرباح الأوبشنز")
+st.sidebar.title("🎯 Live Options Selector")
+st.sidebar.caption("محدد أفضل عقد أوبشن بناءً على هدف ووقف السهم")
 
-ticker_symbol = st.sidebar.text_input("رمز السهم:", value="NVDA").upper().strip()
-timeframe = st.sidebar.selectbox("الفريم الزمني:", ["5m", "15m", "1h"], index=1)
-min_ml_prob = st.sidebar.slider("حد ثقة الذكاء الاصطناعي (ML Prob %):", 50, 85, 65, 5) / 100
+symbol = st.sidebar.text_input("رمز السهم:", value="NVDA").upper().strip()
 
-st.sidebar.markdown("---")
-st.sidebar.header("🎯 حاسبة عقود الأوبشنز (Options Calculator)")
-option_price = st.sidebar.number_input("سعر عقد الأوبشن الحالي ($):", value=2.50, step=0.10)
-option_delta = st.sidebar.slider("معامل الدلتا (Delta Δ):", 0.10, 0.95, 0.50, 0.05)
+# جلب بيانات السهم المباشرة
+@st.cache_data(ttl=30)
+def get_stock_data(ticker_symbol):
+    t = yf.Ticker(ticker_symbol)
+    hist = t.history(period="5d", interval="15m")
+    if hist.empty:
+        return None, None, []
+    current_price = float(hist['Close'].iloc[-1])
+    expirations = t.options
+    return t, current_price, expirations
 
-# -------------------------------------------------------------
-# 3. حساب المؤشرات وتجهيز بيانات الذكاء الاصطناعي
-# -------------------------------------------------------------
-def calculate_rsi(series, period=14):
-    delta = series.diff()
-    gain = (delta.where(delta > 0, 0)).rolling(window=period).mean()
-    loss = (-delta.where(delta < 0, 0)).rolling(window=period).mean()
-    rs = gain / loss
-    return 100 - (100 / (1 + rs))
+ticker_obj, live_price, all_expirations = get_stock_data(symbol)
 
-@st.cache_data(ttl=60)
-def load_data(symbol, interval):
-    df = yf.download(symbol, period="1mo" if interval in ["5m", "15m"] else "6mo", interval=interval, progress=False)
-    if isinstance(df.columns, pd.MultiIndex):
-        df.columns = df.columns.get_level_values(0)
-    df = df.dropna()
-
-    df['TP'] = (df['High'] + df['Low'] + df['Close']) / 3
-    df['VP'] = df['TP'] * df['Volume']
-    df['Date'] = df.index.date
-    df['VWAP'] = df.groupby('Date')['VP'].cumsum() / df.groupby('Date')['Volume'].cumsum()
-
-    df['EMA_9'] = df['Close'].ewm(span=9, adjust=False).mean()
-    df['EMA_21'] = df['Close'].ewm(span=21, adjust=False).mean()
-    df['RSI'] = calculate_rsi(df['Close'], 14)
-    df['Vol_Ratio'] = df['Volume'] / df['Volume'].rolling(20).mean()
-
-    # ATR لحساب الأهداف
-    tr = pd.concat([df['High'] - df['Low'], np.abs(df['High'] - df['Close'].shift()), np.abs(df['Low'] - df['Close'].shift())], axis=1).max(axis=1)
-    df['ATR'] = tr.rolling(14).mean()
-
-    # خصائص الذكاء الاصطناعي
-    df['Feature_Dist_VWAP'] = (df['Close'] - df['VWAP']) / df['VWAP']
-    df['Feature_EMA_Diff'] = (df['EMA_9'] - df['EMA_21']) / df['EMA_21']
-    df['Feature_RSI'] = df['RSI']
-    df['Feature_Vol_Ratio'] = df['Vol_Ratio']
-
-    df['Future_Return'] = (df['Close'].shift(-3) - df['Close']) / df['Close']
-    df['Target'] = np.where(df['Future_Return'] > 0.008, 1, 0)
-
-    return df.dropna()
-
-df = load_data(ticker_symbol, timeframe)
-
-# -------------------------------------------------------------
-# 4. تدريب النموذج والتحليل
-# -------------------------------------------------------------
-if not df.empty and len(df) >= 100:
-    feature_cols = ['Feature_Dist_VWAP', 'Feature_EMA_Diff', 'Feature_RSI', 'Feature_Vol_Ratio']
-    X = df[feature_cols]
-    y = df['Target']
-
-    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, shuffle=False)
-    rf_model = RandomForestClassifier(n_estimators=100, max_depth=5, random_state=42)
-    rf_model.fit(X_train, y_train)
-    model_acc = rf_model.score(X_test, y_test)
-
-    latest = df.iloc[-1]
-    curr_price = float(latest['Close'])
-    vwap_val = float(latest['VWAP'])
-    atr_val = float(latest['ATR']) if not np.isnan(latest['ATR']) else curr_price * 0.01
-
-    current_features = np.array([[latest['Feature_Dist_VWAP'], latest['Feature_EMA_Diff'], latest['Feature_RSI'], latest['Feature_Vol_Ratio']]])
-    win_prob_call = rf_model.predict_proba(current_features)[0][1]
-    win_prob_put = 1.0 - win_prob_call
-
-    technical_call = (curr_price > vwap_val) and (latest['EMA_9'] > latest['EMA_21'])
-    technical_put = (curr_price < vwap_val) and (latest['EMA_9'] < latest['EMA_21'])
-
-    # -------------------------------------------------------------
-    # 5. حسابات الأوبشنز وحساب المتوقع بناءً على Delta
-    # -------------------------------------------------------------
-    # أهداف تحرك السهم
-    stock_target_call = curr_price + (1.5 * atr_val)
-    stock_sl_call = curr_price - (1.0 * atr_val)
-
-    stock_target_put = curr_price - (1.5 * atr_val)
-    stock_sl_put = curr_price + (1.0 * atr_val)
-
-    # حساب أرباح/خسائر العقد بالـ Delta
-    if technical_call or win_prob_call >= win_prob_put:
-        stock_change_tp = stock_target_call - curr_price
-        stock_change_sl = curr_price - stock_sl_call
-    else:
-        stock_change_tp = curr_price - stock_target_put
-        stock_change_sl = stock_sl_put - curr_price
-
-    option_gain_dollar = stock_change_tp * option_delta
-    option_loss_dollar = stock_change_sl * option_delta
-
-    option_target_price = option_price + option_gain_dollar
-    option_sl_price = max(0.01, option_price - option_loss_dollar)
-
-    option_tp_pct = (option_gain_dollar / option_price) * 100 if option_price > 0 else 0
-    option_sl_pct = (option_loss_dollar / option_price) * 100 if option_price > 0 else 0
-
-    # تحديد القرار
-    if technical_call and win_prob_call >= min_ml_prob:
-        action = f"STRONG CALL 📈 (ثقة الذكاء الاصطناعي: {win_prob_call*100:.1f}%)"
-        banner = "call-banner"
-        color = "#2ea043"
-    elif technical_put and win_prob_put >= min_ml_prob:
-        action = f"STRONG PUT 📉 (ثقة الذكاء الاصطناعي: {win_prob_put*100:.1f}%)"
-        banner = "put-banner"
-        color = "#da3633"
-    else:
-        action = f"WAIT / NEUTRAL ⏳ (احتمالية النجاح {max(win_prob_call, win_prob_put)*100:.1f}% أقل من الحد المطلوبة)"
-        banner = "wait-banner"
-        color = "#8b949e"
-
-    # -------------------------------------------------------------
-    # 6. العرض الرئيسي Dashboard
-    # -------------------------------------------------------------
-    st.title(f"📊 غرفة تداول الأوبشنز الكمية: {ticker_symbol}")
-
-    st.markdown(f"""
-    <div class="{banner}">
-        <h2 style="margin:0; color:{color};">{action}</h2>
-        <p style="margin:5px 0 0 0;">سعر السهم الحالي: <b>${curr_price:.2f}</b> | VWAP: <b>${vwap_val:.2f}</b> | دقة النموذج التاريخية: <b>{model_acc*100:.1f}%</b></p>
-    </div>
-    """, unsafe_allow_html=True)
-
-    # عرض كروت محاكي الأوبشنز
-    st.subheader("🎯 محاكي أرباح وخسائر عقد الأوبشن (Option PnL Estimator)")
-    c1, c2, c3, c4 = st.columns(4)
-    c1.markdown(f'<div class="metric-card"><div class="metric-label">سعر شراء العقد الحالي</div><div class="metric-val">${option_price:.2f}</div></div>', unsafe_allow_html=True)
-    c2.markdown(f'<div class="metric-card"><div class="metric-label">هدف بيع العقد (TP)</div><div class="metric-val" style="color:#2ea043;">${option_target_price:.2f} (+{option_tp_pct:.1f}%)</div></div>', unsafe_allow_html=True)
-    c3.markdown(f'<div class="metric-card"><div class="metric-label">وقف خسارة العقد (SL)</div><div class="metric-val" style="color:#da3633;">${option_sl_price:.2f} (-{option_sl_pct:.1f}%)</div></div>', unsafe_allow_html=True)
-    c4.markdown(f'<div class="metric-card"><div class="metric-label">ربح العقد المتوقع ($)</div><div class="metric-val" style="color:#58a6ff;">+${option_gain_dollar*100:.0f} / للعقد</div></div>', unsafe_allow_html=True)
-
-    st.markdown("<br>", unsafe_allow_html=True)
-
-    # الرسم البياني
-    fig = make_subplots(rows=2, cols=1, shared_xaxes=True, vertical_spacing=0.03, row_heights=[0.7, 0.3])
-    fig.add_trace(go.Candlestick(x=df.index, open=df['Open'], high=df['High'], low=df['Low'], close=df['Close'], name="السعر"), row=1, col=1)
-    fig.add_trace(go.Scatter(x=df.index, y=df['VWAP'], line=dict(color='#f1e05a', width=1.5), name="VWAP"), row=1, col=1)
-    fig.add_trace(go.Scatter(x=df.index, y=df['RSI'], line=dict(color='#58a6ff', width=1.5), name="RSI"), row=2, col=1)
-    fig.add_hline(y=70, line_dash="dash", line_color="red", row=2, col=1)
-    fig.add_hline(y=30, line_dash="dash", line_color="green", row=2, col=1)
-
-    fig.update_layout(template="plotly_dark", height=500, paper_bgcolor="#0d1117", plot_bgcolor="#0d1117", xaxis_rangeslider_visible=False)
-    st.plotly_chart(fig, use_container_width=True)
-
+if not live_price:
+    st.error(f"⚠️ يتعذر جلب بيانات السهم {symbol}. تأكد من الرمز.")
 else:
-    st.error("جاري جلب البيانات أو أن عدد الشموع المجلوبة غير كافٍ للتحليل.")
+    st.sidebar.markdown(f"**السعر الحالي للسهم:** `${live_price:.2f}`")
+    
+    # اختيار الاتجاه والهدف ووقف الخسارة
+    trade_type = st.sidebar.radio("نوع الصفقة المستهدفة:", ["CALL (صاعد) 📈", "PUT (هابط) 📉"])
+    
+    default_tp = round(live_price * 1.02 if "CALL" in trade_type else live_price * 0.98, 2)
+    default_sl = round(live_price * 0.99 if "CALL" in trade_type else live_price * 1.01, 2)
+
+    target_price = st.sidebar.number_input("هدف السهم (Take Profit $):", value=default_tp, step=0.5)
+    stop_loss = st.sidebar.number_input("وقف خسارة السهم (Stop Loss $):", value=default_sl, step=0.5)
+    
+    # اختيار تاريخ الانتهاء المستهدف (أو اقرب تاريخ)
+    selected_exp = st.sidebar.selectbox("تاريخ انتهاء العقد (Expiration):", all_expirations[:5] if all_expirations else ["لا يوجد"])
+
+    # -------------------------------------------------------------
+    # 3. محرك فحص وتقييم عقود الأوبشن الحية
+    # -------------------------------------------------------------
+    def analyze_live_options(ticker, exp_date, current_s, tp_s, sl_s, is_call):
+        try:
+            chain = ticker.option_chain(exp_date)
+            df_opts = chain.calls if is_call else chain.puts
+            
+            if df_opts.empty:
+                return None
+
+            # فلترة العقود القريبة من السعر (±10% من سعر السهم) والابتعاد عن العقود البعيدة جداً
+            df_opts = df_opts[(df_opts['strike'] >= current_s * 0.85) & (df_opts['strike'] <= current_s * 1.15)].copy()
+            
+            # فلترة العقود ذات السيولة الضعيفة
+            df_opts = df_opts[df_opts['ask'] > 0.05].copy()
+
+            results = []
+            
+            for idx, row in df_opts.iterrows():
+                strike = row['strike']
+                ask_price = row['ask'] # سعر شراء العقد الحالي
+                bid_price = row['bid']
+                volume = row['volume'] if not np.isnan(row['volume']) else 0
+                open_interest = row['openInterest'] if not np.isnan(row['openInterest']) else 0
+
+                if ask_price <= 0:
+                    continue
+
+                # حساب التغير المتوقع في سعر السهم عند الهدف وعند الوقف
+                price_diff_tp = abs(tp_s - current_s)
+                price_diff_sl = abs(current_s - sl_s)
+
+                # تقدير الدلتا التخمينية بناءً على القرب من السترايك (In The Money / Out Of The Money)
+                moneness = (current_s - strike) if is_call else (strike - current_s)
+                
+                # تقدير تقريبي للدلتا (Delta) لتحديد استجابة العقد
+                if moneness > 0: # ITM
+                    est_delta = min(0.85, 0.50 + (moneness / current_s) * 3)
+                else: # OTM
+                    est_delta = max(0.15, 0.50 + (moneness / current_s) * 3)
+
+                # ربح العقد عند هدف السهم (تقديري)
+                est_opt_tp = ask_price + (price_diff_tp * est_delta)
+                opt_profit = est_opt_tp - ask_price
+                opt_roi = (opt_profit / ask_price) * 100
+
+                # خسارة العقد عند وقف خسارة السهم (تقديري)
+                est_opt_sl = max(0.01, ask_price - (price_diff_sl * est_delta))
+                opt_loss = ask_price - est_opt_sl
+                opt_risk_pct = (opt_loss / ask_price) * 100
+
+                # نسبة العائد للمخاطرة للعقد (Risk/Reward Ratio)
+                rr_ratio = round(opt_profit / opt_loss, 2) if opt_loss > 0 else 0
+
+                results.append({
+                    "strike": strike,
+                    "ask": ask_price,
+                    "bid": bid_price,
+                    "volume": int(volume),
+                    "openInterest": int(open_interest),
+                    "est_delta": round(est_delta, 2),
+                    "opt_tp_price": round(est_opt_tp, 2),
+                    "opt_sl_price": round(est_opt_sl, 2),
+                    "opt_roi": round(opt_roi, 1),
+                    "opt_risk_pct": round(opt_risk_pct, 1),
+                    "rr_ratio": rr_ratio,
+                    "score": (opt_roi * 0.4) + (rr_ratio * 20) + (np.log1p(volume) * 2) # معادلة تفضيل السيولة والربحية
+                })
+
+            res_df = pd.DataFrame(results)
+            if not res_df.empty:
+                res_df = res_df.sort_values(by="score", ascending=False)
+            return res_df
+
+        except Exception as e:
+            st.error(f"خطأ أثناء جلب سلسلة العقود: {str(e)}")
+            return None
+
+    # -------------------------------------------------------------
+    # 4. عرض النتائج والعقد الأفضل
+    # -------------------------------------------------------------
+    is_call_trade = "CALL" in trade_type
+    
+    st.title(f"⚡ تحليل عقود الأوبشن الحية: {symbol}")
+    st.caption(f"تاريخ الانتهاء المحدد: **{selected_exp}** | سعر السهم اللحظي: **${live_price:.2f}**")
+
+    opts_df = analyze_live_options(ticker_obj, selected_exp, live_price, target_price, stop_loss, is_call_trade)
+
+    if opts_df is not None and not opts_df.empty:
+        best_opt = opts_df.iloc[0] # العقد ذو النتيجة الأعلى
+
+        # كارت العقد الموصى به
+        st.markdown(f"""
+        <div class="best-card">
+            <h3 style="margin:0; color:#58a6ff;">🏆 العقد الأفضل الموصى به (Best Choice)</h3>
+            <div style="font-size:1.6rem; font-weight:bold; margin:10px 0; color:#f0f6fc;">
+                {symbol} ${best_opt['strike']} {'CALL' if is_call_trade else 'PUT'} — Exp: {selected_exp}
+            </div>
+            <p style="margin:0; color:#8b949e;">
+                سعر الشراء الحالي (Ask): <b style="color:#f0f6fc;">${best_opt['ask']:.2f}</b> (${best_opt['ask']*100:.0f} للعقد) | 
+                السيولة (Volume): <b style="color:#f0f6fc;">{best_opt['volume']}</b> | 
+                الدلتا التقريبية: <b style="color:#f0f6fc;">{best_opt['est_delta']}</b>
+            </p>
+        </div>
+        """, unsafe_allow_html=True)
+
+        # تفاصيل أهداف العقد المختار
+        c1, c2, c3, c4 = st.columns(4)
+        c1.markdown(f'<div class="metric-card"><div class="metric-label">هدف العقد عند TP السهم</div><div class="metric-val" style="color:#2ea043;">${best_opt["opt_tp_price"]:.2f} (+{best_opt["opt_roi"]}%)</div></div>', unsafe_allow_html=True)
+        c2.markdown(f'<div class="metric-card"><div class="metric-label">وقف العقد عند SL السهم</div><div class="metric-val" style="color:#da3633;">${best_opt["opt_sl_price"]:.2f} (-{best_opt["opt_risk_pct"]}%)</div></div>', unsafe_allow_html=True)
+        c3.markdown(f'<div class="metric-card"><div class="metric-label">نسبة العائد / المخاطرة</div><div class="metric-val" style="color:#58a6ff;">1:{best_opt["rr_ratio"]}</div></div>', unsafe_allow_html=True)
+        c4.markdown(f'<div class="metric-card"><div class="metric-label">الربح الصافي المتوقع / عقد</div><div class="metric-val" style="color:#2ea043;">+${(best_opt["opt_tp_price"] - best_opt["ask"])*100:.0f}</div></div>', unsafe_allow_html=True)
+
+        st.markdown("<br>", unsafe_allow_html=True)
+        st.subheader("📋 قائمة باقي السترايكات المتاحة والمفاضلة بينها:")
+
+        # عرض الجدول كاملاً للمقارنة
+        display_df = opts_df[['strike', 'ask', 'bid', 'est_delta', 'opt_tp_price', 'opt_roi', 'opt_risk_pct', 'rr_ratio', 'volume']].copy()
+        display_df.columns = ['السترايك (Strike)', 'سعر الشراء (Ask)', 'سعر البيع (Bid)', 'Delta', 'هدف العقد ($)', 'نسبة الربح المتوقعة (%)', 'مخاطرة الوقف (%)', 'العائد/المخاطرة', 'حجم التداول (Volume)']
+        
+        st.dataframe(display_df, use_container_width=True)
+
+    else:
+        st.warning("لم يتم العثور على عقود تلبّي شروط السيولة في هذا التاريخ. اختر تاريخ انتهاء آخر من الشريط الجانبي.")
