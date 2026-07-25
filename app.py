@@ -6,7 +6,7 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 from scipy.signal import find_peaks
 from sklearn.ensemble import RandomForestClassifier
-datetime_mod = __import__('datetime')
+from datetime import date
 
 # -------------------------------------------------------------
 # 1. Page Configuration & Dark Theme CSS
@@ -111,7 +111,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # -------------------------------------------------------------
-# 2. Advanced Multi-Factor Quantitative Engine
+# 2. Indicators & Pure Live Data Engine (No Mock Data)
 # -------------------------------------------------------------
 def compute_indicators(df):
     df = df.copy()
@@ -135,25 +135,8 @@ def compute_indicators(df):
     df['Vol_Change'] = df['Volume'].pct_change()
     return df.dropna()
 
-def generate_mock_data(ticker_symbol):
-    np.random.seed(hash(ticker_symbol) % 2035)
-    base_prices = {"AMD": 165.0, "NVDA": 125.0, "TSLA": 220.0, "AAPL": 215.0}
-    start_p = base_prices.get(ticker_symbol, 150.0)
-    
-    dates = pd.date_range(end=datetime_mod.date.today(), periods=180, freq='B')
-    returns = np.random.normal(0.001, 0.022, len(dates))
-    price_path = start_p * np.cumprod(1 + returns)
-    
-    df = pd.DataFrame(index=dates)
-    df['Close'] = price_path
-    df['Open'] = df['Close'] * (1 + np.random.normal(0, 0.005, len(dates)))
-    df['High'] = df[['Close', 'Open']].max(axis=1) * (1 + np.abs(np.random.normal(0, 0.008, len(dates))))
-    df['Low'] = df[['Close', 'Open']].min(axis=1) * (1 - np.abs(np.random.normal(0, 0.008, len(dates))))
-    df['Volume'] = np.random.randint(40000000, 150000000, len(dates))
-    return compute_indicators(df)
-
 @st.cache_data(ttl=60)
-def fetch_stock_data(ticker_symbol, timeframe="6m"):
+def fetch_live_data(ticker_symbol, timeframe="6m"):
     try:
         ticker = yf.Ticker(ticker_symbol)
         df = ticker.history(period=timeframe)
@@ -164,17 +147,16 @@ def fetch_stock_data(ticker_symbol, timeframe="6m"):
             if isinstance(df.columns, pd.MultiIndex):
                 df.columns = df.columns.get_level_values(0)
             return compute_indicators(df)
-    except Exception:
-        pass
-    return generate_mock_data(ticker_symbol)
+    except Exception as e:
+        st.error(f"خطأ في جلب بيانات السوق الحية: {e}")
+    return None
 
 # -------------------------------------------------------------
-# 3. True ML Classifier & Comprehensive Backtest Engine
+# 3. Machine Learning & Quantitative Backtest Engine
 # -------------------------------------------------------------
 def run_ml_and_backtest(df, ml_threshold=0.52, initial_capital=10000):
     data = df.copy()
     
-    # --- Machine Learning Feature Matrix & Training ---
     data['Target'] = np.where(data['Close'].shift(-1) > data['Close'], 1, 0)
     features = ['RSI', 'MACD', 'MACD_Signal', 'ATR', 'Returns', 'Vol_Change']
     ml_data = data.dropna()
@@ -182,10 +164,9 @@ def run_ml_and_backtest(df, ml_threshold=0.52, initial_capital=10000):
     X = ml_data[features]
     y = ml_data['Target']
     
-    if len(X) > 50:
+    if len(X) > 30:
         model = RandomForestClassifier(n_estimators=100, max_depth=5, random_state=42)
         model.fit(X[:-1], y[:-1])
-        # Predict probabilities across the entire dataset for robust backtesting
         probs = model.predict_proba(X)[:, 1]
         data.loc[ml_data.index, 'ML_Prob'] = probs
     else:
@@ -193,8 +174,6 @@ def run_ml_and_backtest(df, ml_threshold=0.52, initial_capital=10000):
         
     data['ML_Prob'] = data['ML_Prob'].fillna(0.5)
     
-    # --- ML-Driven Strategy Backtest (No Simple MA Crossover!) ---
-    # Strategy: Buy when Machine Learning prediction confidence for upward move exceeds threshold
     data['Signal'] = 0
     data.loc[data['ML_Prob'] > ml_threshold, 'Signal'] = 1
     data.loc[data['ML_Prob'] < (1 - ml_threshold), 'Signal'] = -1
@@ -217,7 +196,6 @@ def run_ml_and_backtest(df, ml_threshold=0.52, initial_capital=10000):
     
     latest_ml_prob = float(data['ML_Prob'].iloc[-1]) * 100
     
-    # Reliability Score strictly tied to ML Confidence & Backtest Performance Metrics
     reliability_score = round((latest_ml_prob * 0.50) + (win_rate * 0.35) + (min(100, max(0, ret_pct + 50)) * 0.15), 1)
     reliability_score = min(99.5, max(15.0, reliability_score))
     
@@ -228,9 +206,9 @@ def run_ml_and_backtest(df, ml_threshold=0.52, initial_capital=10000):
     }
 
 # -------------------------------------------------------------
-# 4. Unambiguous Pattern Recognition
+# 4. Pattern Recognition (Unambiguous)
 # -------------------------------------------------------------
-def detect_real_patterns(df):
+def detect_patterns(df):
     closes = df['Close'].values
     highs = df['High'].values
     lows = df['Low'].values
@@ -243,21 +221,21 @@ def detect_real_patterns(df):
     if len(troughs) >= 2:
         t1, t2 = lows[troughs[-2]], lows[troughs[-1]]
         if abs(t1 - t2) / t1 < 0.02 and closes[-1] > t2:
-            patterns.append(("bullish", f"🟢 Validated Double Bottom Reversal Structure (Support @ ${t2:.2f})"))
+            patterns.append(("bullish", f"🟢 نموذج قاع مزدوج مؤكد (دعم عند ${t2:.2f})"))
             
     if len(peaks) >= 2:
         p1, p2 = highs[peaks[-2]], highs[peaks[-1]]
         if abs(p1 - p2) / p1 < 0.02 and closes[-1] < p2:
-            patterns.append(("bearish", f"🔴 Validated Double Top Reversal Structure (Resistance @ ${p2:.2f})"))
+            patterns.append(("bearish", f"🔴 نموذج قمة مزدوجة مؤكد (مقاومة عند ${p2:.2f})"))
             
     if not patterns:
         recent_ret = (closes[-1] - closes[-10]) / closes[-10]
-        if recent_ret > 0.025:
-            patterns.append(("bullish", f"🚀 Strong Momentum Breakout Phase (+{recent_ret*100:.1f}% over 10 sessions)"))
-        elif recent_ret < -0.025:
-            patterns.append(("bearish", f"⚠️ Corrective Downtrend Phase ({recent_ret*100:.1f}% over 10 sessions)"))
+        if recent_ret > 0.02:
+            patterns.append(("bullish", f"🚀 زخم صاعد قوي (+{recent_ret*100:.1f}% خلال آخر 10 جلسات)"))
+        elif recent_ret < -0.02:
+            patterns.append(("bearish", f"⚠️ ضغط هبوطي وتصحيح ({recent_ret*100:.1f}% خلال آخر 10 جلسات)"))
         else:
-            patterns.append(("neutral", "➡️ Algorithmic Range-Bound Consolidation Market"))
+            patterns.append(("neutral", "➡️ حركية أفقية ونطاق عرضي مستقر"))
             
     return patterns
 
@@ -271,117 +249,110 @@ st.sidebar.markdown("""
 </div>
 """, unsafe_allow_html=True)
 
-nav_selection = st.sidebar.radio(
-    "Navigation",
-    ["📊 Quant Dashboard", "📈 ML & Backtest Analytics", "🎯 Options Quant Selector", "💼 Portfolio & Risk", "⚙️ System Settings"],
+nav = st.sidebar.radio(
+    "القائمة",
+    ["📊 لوحة المؤشرات", "📈 تحليلات الباك تست والذكاء الاصطناعي", "⚙️ الإعدادات"],
     label_visibility="collapsed"
 )
 
 st.sidebar.markdown("---")
-symbol = st.sidebar.text_input("Active Ticker Symbol:", value="AMD").upper().strip()
-stock_df = fetch_stock_data(symbol)
-live_price = float(stock_df['Close'].iloc[-1])
-atr_val = float(stock_df['ATR'].iloc[-1])
+symbol = st.sidebar.text_input("رمز السهم النشط:", value="AMD").upper().strip()
 
-st.sidebar.markdown(f"**Current Price:** `${live_price:.2f}`")
-st.sidebar.markdown(f"**14-ATR Volatility:** `${atr_val:.2f}`")
+df = fetch_live_data(symbol)
 
-if st.sidebar.button("🔄 Retrain ML & Run Backtest"):
+if df is None or df.empty:
+    st.error(f"❌ لم يتم العثور على بيانات حية للرمز {symbol}. تأكد من صحة الرمز المكتوب.")
+    st.stop()
+
+api_live_price = float(df['Close'].iloc[-1])
+manual_override = st.sidebar.checkbox("تفعيل تعديل السعر يدوياً", value=False)
+if manual_override:
+    live_price = st.sidebar.number_input("السعر الفعلي ($):", value=api_live_price, step=0.1)
+    df.iloc[-1, df.columns.get_loc('Close')] = live_price
+else:
+    live_price = api_live_price
+
+atr_val = float(df['ATR'].iloc[-1])
+
+st.sidebar.markdown(f"**السعر الحي:** `${live_price:.2f}`")
+st.sidebar.markdown(f"**التقلب (ATR):** `${atr_val:.2f}`")
+
+if st.sidebar.button("🔄 مسح الذاكرة وتحديث البيانات"):
     st.cache_data.clear()
     st.rerun()
 
-current_date_str = datetime_mod.date.today().strftime("%A, %B %d, %Y")
+current_date_str = date.today().strftime("%A, %B %d, %Y")
 
 # -------------------------------------------------------------
 # VIEW 1: DASHBOARD
 # -------------------------------------------------------------
-if nav_selection == "📊 Quant Dashboard":
+if nav == "📊 لوحة المؤشرات":
     st.markdown(f"""
-        <h1 style="color: #f8fafc; font-weight: 800; margin-bottom: 0px;">Quantitative Dashboard</h1>
-        <p style="color: #94a3b8; font-size: 0.95rem; margin-top: 4px; margin-bottom: 24px;">{current_date_str} — Advanced Machine Learning Trading Terminal</p>
+        <h1 style="color: #f8fafc; font-weight: 800; margin-bottom: 0px;">لوحة التحليل الكمي: {symbol}</h1>
+        <p style="color: #94a3b8; font-size: 0.95rem; margin-top: 4px; margin-bottom: 24px;">{current_date_str} — بيانات حقيقية مباشرة من السوق</p>
     """, unsafe_allow_html=True)
     
     c1, c2, c3, c4 = st.columns(4)
     with c1:
-        st.markdown(f'<div class="terminal-card"><div class="card-label">Account Equity</div><div class="card-value">$25,285</div></div>', unsafe_allow_html=True)
+        st.markdown(f'<div class="terminal-card"><div class="card-label">السعر اللحظي</div><div class="card-value" style="color: #3b82f6;">${live_price:.2f}</div></div>', unsafe_allow_html=True)
     with c2:
-        st.markdown(f'<div class="terminal-card"><div class="card-label">Active Ticker</div><div class="card-value">{symbol}</div></div>', unsafe_allow_html=True)
+        st.markdown(f'<div class="terminal-card"><div class="card-label">الرمز النشط</div><div class="card-value">{symbol}</div></div>', unsafe_allow_html=True)
     with c3:
-        st.markdown(f'<div class="terminal-card"><div class="card-label">ML Confidence</div><div class="card-value" style="color: #3b82f6;">81.4%</div></div>', unsafe_allow_html=True)
+        st.markdown(f'<div class="terminal-card"><div class="card-label">مصدر البيانات</div><div class="card-value" style="color: #10b981;">حقيقي 100%</div></div>', unsafe_allow_html=True)
     with c4:
-        st.markdown(f'<div class="terminal-card"><div class="card-label">Strategy Win Rate</div><div class="card-value" style="color: #10b981;">71.2%</div></div>', unsafe_allow_html=True)
+        st.markdown(f'<div class="terminal-card"><div class="card-label">مؤشر التقلب ATR</div><div class="card-value" style="color: #f59e0b;">${atr_val:.2f}</div></div>', unsafe_allow_html=True)
 
     st.markdown("<br>", unsafe_allow_html=True)
     fig_price = go.Figure()
-    fig_price.add_trace(go.Scatter(x=stock_df.index, y=stock_df['Close'], mode='lines', line=dict(color='#3b82f6', width=2.5), fill='tozeroy', fillcolor='rgba(59, 130, 246, 0.1)', name='Close Price'))
+    fig_price.add_trace(go.Scatter(x=df.index, y=df['Close'], mode='lines', line=dict(color='#3b82f6', width=2.5), fill='tozeroy', fillcolor='rgba(59, 130, 246, 0.1)', name='السعر الحي'))
     fig_price.update_layout(template="plotly_dark", height=320, paper_bgcolor="#111827", plot_bgcolor="#111827", margin=dict(l=10, r=10, t=10, b=10))
     st.plotly_chart(fig_price, use_container_width=True)
 
 # -------------------------------------------------------------
-# VIEW 2: ML & BACKTEST ANALYTICS (Core Engine)
+# VIEW 2: ML & BACKTEST ANALYTICS
 # -------------------------------------------------------------
-elif nav_selection == "📈 ML & Backtest Analytics":
+elif nav == "📈 تحليلات الباك تست والذكاء الاصطناعي":
     st.markdown(f"""
-        <h1 style="color: #f8fafc; font-weight: 800; margin-bottom: 0px;">ML & Backtest Analytics: <span style="color:#3b82f6;">{symbol}</span></h1>
-        <p style="color: #94a3b8; font-size: 0.95rem; margin-top: 4px; margin-bottom: 24px;">Machine Learning Model Performance & Quantitative Backtesting Engine</p>
+        <h1 style="color: #f8fafc; font-weight: 800; margin-bottom: 0px;">تحليلات الـ ML والباك تست: <span style="color:#3b82f6;">{symbol}</span></h1>
+        <p style="color: #94a3b8; font-size: 0.95rem; margin-top: 4px; margin-bottom: 24px;">محرك التعلم الآلي والاختبار العكسي المبني على البيانات الحية</p>
     """, unsafe_allow_html=True)
     
     b_col1, b_col2 = st.columns(2)
-    ml_threshold = b_col1.slider("ML Probability Execution Threshold:", min_value=0.50, max_value=0.65, value=0.52, step=0.01)
-    capital = b_col2.number_input("Initial Backtest Capital ($):", min_value=1000, value=10000, step=1000)
+    ml_threshold = b_col1.slider("عتبة احتمالية الدخول (ML Threshold):", min_value=0.50, max_value=0.65, value=0.52, step=0.01)
+    capital = b_col2.number_input("رأس المال الافتراضي للباك تست ($):", min_value=1000, value=10000, step=1000)
     
-    bt_df, metrics = run_ml_and_backtest(stock_df, ml_threshold, capital)
-    detected_patterns = detect_real_patterns(stock_df)
+    bt_df, metrics = run_ml_and_backtest(df, ml_threshold, capital)
+    patterns = detect_patterns(df)
     
-    st.markdown("### ⚡ Quantitative Reliability & Model Scores")
+    st.markdown("### ⚡ مؤشرات الموثوقية والأداء الكمي")
     r1, r2, r3, r4 = st.columns(4)
-    r1.markdown(f'<div class="terminal-card"><div class="card-label">System Reliability</div><div class="card-value" style="color: #10b981;">{metrics["reliability"]:.1f}%</div></div>', unsafe_allow_html=True)
-    r2.markdown(f'<div class="terminal-card"><div class="card-label">ML Up Probability</div><div class="card-value" style="color: #3b82f6;">{metrics["ml_prob"]:.1f}%</div></div>', unsafe_allow_html=True)
-    r3.markdown(f'<div class="terminal-card"><div class="card-label">Backtest Win Rate</div><div class="card-value" style="color: #f59e0b;">{metrics["win_rate"]:.1f}%</div></div>', unsafe_allow_html=True)
-    r4.markdown(f'<div class="terminal-card"><div class="card-label">Net Strategy Profit</div><div class="card-value" style="color: {"#10b981" if metrics["net_profit"]>=0 else "#f43f5e"};">${metrics["net_profit"]:.2f}</div></div>', unsafe_allow_html=True)
+    r1.markdown(f'<div class="terminal-card"><div class="card-label">الموثوقية الكلية</div><div class="card-value" style="color: #10b981;">{metrics["reliability"]:.1f}%</div></div>', unsafe_allow_html=True)
+    r2.markdown(f'<div class="terminal-card"><div class="card-label">احتمالية صعود الـ ML</div><div class="card-value" style="color: #3b82f6;">{metrics["ml_prob"]:.1f}%</div></div>', unsafe_allow_html=True)
+    r3.markdown(f'<div class="terminal-card"><div class="card-label">دقة صفقات الباك تست</div><div class="card-value" style="color: #f59e0b;">{metrics["win_rate"]:.1f}%</div></div>', unsafe_allow_html=True)
+    r4.markdown(f'<div class="terminal-card"><div class="card-label">صافي ربح الاستراتيجية</div><div class="card-value" style="color: {"#10b981" if metrics["net_profit"]>=0 else "#f43f5e"};">${metrics["net_profit"]:.2f}</div></div>', unsafe_allow_html=True)
     
     st.markdown("---")
-    st.markdown("### 🔍 Filtered Structural Pattern Detection")
-    for p_type, p_text in detected_patterns:
+    st.markdown("### 🔍 الهيكلة الفنية المفلترة (بدون تعارض)")
+    for p_type, p_text in patterns:
         css_class = "pattern-box-bullish" if p_type == "bullish" else ("pattern-box-bearish" if p_type == "bearish" else "pattern-box-neutral")
         st.markdown(f'<div class="{css_class}">{p_text}</div>', unsafe_allow_html=True)
         
     st.markdown("---")
-    st.markdown("### 🧪 Machine Learning Strategy Backtest Curve")
+    st.markdown("### 🧪 منحنى الأداء الرأسمالي للاستراتيجية مقابل السوق")
     fig_bt = make_subplots(rows=2, cols=1, shared_xaxes=True, vertical_spacing=0.08, row_heights=[0.6, 0.4])
-    fig_bt.add_trace(go.Candlestick(x=bt_df.index, open=bt_df['Open'], high=bt_df['High'], low=bt_df['Low'], close=bt_df['Close'], name="Stock Price"), row=1, col=1)
-    fig_bt.add_trace(go.Scatter(x=bt_df.index, y=bt_df['Cumulative_Strategy'], line=dict(color='#10b981', width=2), name="ML Strategy Equity"), row=2, col=1)
-    fig_bt.add_trace(go.Scatter(x=bt_df.index, y=bt_df['Cumulative_Market'], line=dict(color='#94a3b8', width=1, dash='dash'), name="Benchmark Buy & Hold"), row=2, col=1)
+    fig_bt.add_trace(go.Candlestick(x=bt_df.index, open=bt_df['Open'], high=bt_df['High'], low=bt_df['Low'], close=bt_df['Close'], name="السعر الحي"), row=1, col=1)
+    fig_bt.add_trace(go.Scatter(x=bt_df.index, y=bt_df['Cumulative_Strategy'], line=dict(color='#10b981', width=2), name="محفظة استراتيجية الـ ML"), row=2, col=1)
+    fig_bt.add_trace(go.Scatter(x=bt_df.index, y=bt_df['Cumulative_Market'], line=dict(color='#94a3b8', width=1, dash='dash'), name="شراء واحتفاظ السوق"), row=2, col=1)
     
     fig_bt.update_layout(template="plotly_dark", height=520, paper_bgcolor="#111827", plot_bgcolor="#111827", xaxis_rangeslider_visible=False)
     st.plotly_chart(fig_bt, use_container_width=True)
 
 # -------------------------------------------------------------
-# VIEW 3: OPTIONS QUANT SELECTOR
+# VIEW 3: SETTINGS
 # -------------------------------------------------------------
-elif nav_selection == "🎯 Options Quant Selector":
+elif nav == "⚙️ الإعدادات":
     st.markdown(f"""
-        <h1 style="color: #f8fafc; font-weight: 800; margin-bottom: 0px;">Options Algorithmic Selection Engine</h1>
-        <p style="color: #94a3b8; font-size: 0.95rem; margin-top: 4px; margin-bottom: 24px;">Optimal Strike Selection via Dynamic Delta & Volatility Metrics</p>
+        <h1 style="color: #f8fafc; font-weight: 800; margin-bottom: 0px;">إعدادات النظام</h1>
+        <p style="color: #94a3b8; font-size: 0.95rem; margin-top: 4px; margin-bottom: 24px;">تكوين منصة التحليل الكمي</p>
     """, unsafe_allow_html=True)
-    st.info(f"💡 Active options analytics engine loaded for **{symbol}** at live price **${live_price:.2f}**.")
-
-# -------------------------------------------------------------
-# VIEW 4: PORTFOLIO & RISK
-# -------------------------------------------------------------
-elif nav_selection == "💼 Portfolio & Risk":
-    st.markdown(f"""
-        <h1 style="color: #f8fafc; font-weight: 800; margin-bottom: 0px;">Portfolio & Risk Management</h1>
-        <p style="color: #94a3b8; font-size: 0.95rem; margin-top: 4px; margin-bottom: 24px;">Brokerage Summary & Risk Tracking</p>
-    """, unsafe_allow_html=True)
-    st.markdown('<div class="terminal-card"><h3>Active Account</h3><p><b>Options Trading Balance:</b> $25,285</p></div>', unsafe_allow_html=True)
-
-# -------------------------------------------------------------
-# VIEW 5: SYSTEM SETTINGS
-# -------------------------------------------------------------
-elif nav_selection == "⚙️ System Settings":
-    st.markdown(f"""
-        <h1 style="color: #f8fafc; font-weight: 800; margin-bottom: 0px;">System Settings</h1>
-        <p style="color: #94a3b8; font-size: 0.95rem; margin-top: 4px; margin-bottom: 24px;">Quant Terminal Configuration</p>
-    """, unsafe_allow_html=True)
-    st.markdown('<div class="terminal-card"><h3>Configuration</h3><p>• Machine Learning Model: RandomForestClassifier (Multi-Feature Training)</p><p>• Backtest Engine: ML Probability Threshold Execution</p></div>', unsafe_allow_html=True)
+    st.markdown('<div class="terminal-card"><h3>تفاصيل المحرك التقني الحصري</h3><p>• مصدر البيانات: حقيقي 100% عبر yfinance مباشرة (لا توجد بيانات وهمية).</p><p>• نموذج الـ Machine Learning: Random Forest Classifier مدرب على مصفوفة مؤشرات عزم وسيولة (RSI, MACD, ATR, Volume).</p><p>• الباك تست: معتمد حصرياً على احتمالات تنبؤ الذكاء الاصطناعي (وليس تقاطع متوسطات بسيط).</p></div>', unsafe_allow_html=True)
