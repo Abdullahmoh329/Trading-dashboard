@@ -78,28 +78,24 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # -------------------------------------------------------------
-# 2. Resilient Data Engine with Fallback Support
+# 2. Resilient Data Engine
 # -------------------------------------------------------------
 @st.cache_data(ttl=60)
 def fetch_stock_data(ticker_symbol, timeframe="6m"):
     df = pd.DataFrame()
     try:
-        # Method 1: Primary yf.Ticker
         ticker = yf.Ticker(ticker_symbol)
         df = ticker.history(period=timeframe)
         
-        # Method 2: Fallback to yf.download if history is empty
         if df is None or df.empty:
             df = yf.download(ticker_symbol, period=timeframe, progress=False)
             
         if df is None or df.empty:
             return None, 0.0, 0.0
             
-        # Clean multi-index columns if created by yf.download
         if isinstance(df.columns, pd.MultiIndex):
             df.columns = df.columns.get_level_values(0)
 
-        # Calculate Volatility (14-ATR)
         high_low = df['High'] - df['Low']
         high_cp = np.abs(df['High'] - df['Close'].shift())
         low_cp = np.abs(df['Low'] - df['Close'].shift())
@@ -111,7 +107,6 @@ def fetch_stock_data(ticker_symbol, timeframe="6m"):
     except Exception:
         return None, 0.0, 0.0
 
-@st.cache_data(ttl=60)
 def fetch_options_chain(ticker_symbol):
     try:
         ticker = yf.Ticker(ticker_symbol)
@@ -136,19 +131,16 @@ def detect_patterns(df):
     r_highs = highs[-20:]
     r_lows = lows[-20:]
 
-    # Double Bottom
     min1_idx = np.argmin(r_lows[:10])
     min2_idx = np.argmin(r_lows[10:]) + 10
     if abs(r_lows[min1_idx] - r_lows[min2_idx]) / r_lows[min1_idx] < 0.018:
         patterns.append("🟢 Potential Double Bottom (Bullish Reversal)")
 
-    # Double Top
     max1_idx = np.argmax(r_highs[:10])
     max2_idx = np.argmax(r_highs[10:]) + 10
     if abs(r_highs[max1_idx] - r_highs[max2_idx]) / r_highs[max1_idx] < 0.018:
         patterns.append("🔴 Potential Double Top (Bearish Reversal)")
 
-    # Bull/Bear Flag
     initial_move = (closes[-15] - closes[-30]) / closes[-30]
     recent_range = (max(r_highs[-10:]) - min(r_lows[-10:])) / min(r_lows[-10:])
     if initial_move > 0.04 and recent_range < 0.035:
