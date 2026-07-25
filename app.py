@@ -107,31 +107,52 @@ st.markdown("""
 # -------------------------------------------------------------
 # 2. إدارة الجلسة لمنع Rate Limit من ياهو فاينانس
 # -------------------------------------------------------------
-def get_bypass_session():
-    session = requests.Session()
-    session.headers.update({
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
-        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
-        'Accept-Language': 'en-US,en;q=0.9',
-    })
-    return session
+from curl_cffi import requests as curl_requests
+import yfinance as yf
+import streamlit as st
 
-@st.cache_data(ttl=180) # كاش لمدة 3 دقائق لتقليل الطلبات وحماية الـ IP
+# دالة تحاكي متصفح كروم الحقيقي بأسلوب TLS Impersonation
+def get_bypass_session():
+    try:
+        # محاكاة متصفح كروم وتجاوز فحص البصمة الرقمية
+        session = curl_requests.Session(impersonate="chrome120")
+        return session
+    except Exception:
+        return None
+
+@st.cache_data(ttl=300) # كاش لمدة 5 دقائق لتقليل الطلبات وحماية السيرفر من الحظر
 def fetch_ticker_data(symbol_str):
     try:
         session = get_bypass_session()
-        ticker = yf.Ticker(symbol_str, session=session)
         
+        # محاولة الجلب باستخدام الجلسة المحاكاة
+        if session:
+            ticker = yf.Ticker(symbol_str, session=session)
+        else:
+            ticker = yf.Ticker(symbol_str)
+            
         hist = ticker.history(period="1mo", interval="15m")
-        if hist.empty:
-            return None, None, []
         
+        # إذا كانت البيانات فارغة، محاولة جلبها بالطريقة العادية كخيار احتياطي
+        if hist.empty:
+            ticker = yf.Ticker(symbol_str)
+            hist = ticker.history(period="1mo", interval="15m")
+            
+        if hist.empty:
+            return None, None, [], None
+
         current_price = float(hist['Close'].iloc[-1])
-        expirations = ticker.options
+        
+        # جلب تواريخ الانتهاء مع معالجة الأخطاء
+        try:
+            expirations = ticker.options
+        except Exception:
+            expirations = []
+
         return ticker, current_price, expirations, hist
+
     except Exception as e:
         return None, None, [], None
-
 # -------------------------------------------------------------
 # 3. القائمة الجانبية وإدخال البيانات
 # -------------------------------------------------------------
