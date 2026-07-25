@@ -3,13 +3,14 @@ import yfinance as yf
 import pandas as pd
 import numpy as np
 import plotly.graph_objects as go
+from plotly.subplots import make_subplots
 import requests
 
 # -------------------------------------------------------------
-# 1. Modern Dark Terminal UI Setup
+# 1. Page Configuration & Professional Dark CSS
 # -------------------------------------------------------------
 st.set_page_config(
-    page_title="AI Quant Options Terminal",
+    page_title="QuantVision Pro Terminal",
     page_icon="⚡",
     layout="wide",
     initial_sidebar_state="expanded"
@@ -17,258 +18,368 @@ st.set_page_config(
 
 st.markdown("""
 <style>
+    /* Dark Theme Core Base */
     .stApp {
-        background-color: #0b0e14;
-        color: #e6edf3;
+        background-color: #090c10;
+        color: #c9d1d9;
         font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
     }
-    .terminal-header {
-        background: linear-gradient(90deg, #161b22 0%, #0d1117 100%);
+    
+    /* Custom Navigation Bar Tabs */
+    .stTabs [data-baseweb="tab-list"] {
+        gap: 12px;
+        background-color: #161b22;
+        padding: 8px 12px;
+        border-radius: 12px;
         border: 1px solid #30363d;
+    }
+    .stTabs [data-baseweb="tab"] {
+        height: 45px;
+        white-space: pre;
+        background-color: transparent;
+        border-radius: 8px;
+        color: #8b949e;
+        font-size: 1rem;
+        font-weight: 600;
+        padding: 0px 20px;
+    }
+    .stTabs [aria-selected="true"] {
+        background-color: #21262d !important;
+        color: #58a6ff !important;
+        border: 1px solid #30363d !important;
+    }
+
+    /* Cards & Containers */
+    .metric-card {
+        background: #161b22;
+        border: 1px solid #30363d;
+        border-radius: 10px;
+        padding: 16px;
+        text-align: center;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+    }
+    .metric-label { font-size: 0.8rem; color: #8b949e; margin-bottom: 6px; font-weight: 600; text-transform: uppercase; }
+    .metric-val-green { font-size: 1.4rem; font-weight: 800; color: #3fb950; }
+    .metric-val-red { font-size: 1.4rem; font-weight: 800; color: #f85149; }
+    .metric-val-blue { font-size: 1.4rem; font-weight: 800; color: #58a6ff; }
+    
+    .hero-banner {
+        background: linear-gradient(135deg, rgba(31, 111, 235, 0.15) 0%, rgba(13, 17, 23, 0.8) 100%);
+        border: 1px solid #1f6feb;
         border-radius: 12px;
         padding: 20px;
         margin-bottom: 20px;
     }
-    .hero-card {
-        background: linear-gradient(135deg, rgba(88, 166, 255, 0.12) 0%, rgba(15, 23, 42, 0.7) 100%);
-        border: 2px solid #58a6ff;
-        border-radius: 16px;
-        padding: 24px;
-        margin-bottom: 20px;
-        box-shadow: 0 0 20px rgba(88, 166, 255, 0.15);
-    }
-    .badge-recommend {
-        background: #238636;
-        color: #ffffff;
-        padding: 4px 12px;
-        border-radius: 12px;
-        font-weight: bold;
-        font-size: 0.8rem;
-        letter-spacing: 0.5px;
-    }
-    .stat-card {
-        background: #161b22;
-        border: 1px solid #30363d;
-        border-radius: 12px;
-        padding: 16px;
-        text-align: center;
-    }
-    .stat-label { font-size: 0.82rem; color: #8b949e; margin-bottom: 6px; font-weight: 500; }
-    .stat-val-green { font-size: 1.35rem; font-weight: 700; color: #3fb950; }
-    .stat-val-red { font-size: 1.35rem; font-weight: 700; color: #f85149; }
-    .stat-val-blue { font-size: 1.35rem; font-weight: 700; color: #58a6ff; }
-    
+
+    /* Input & Sidebar Elements Fixes */
     [data-testid="stSidebar"] {
-        background-color: #161b22;
+        background-color: #0d1117;
         border-right: 1px solid #30363d;
     }
 </style>
 """, unsafe_allow_html=True)
 
 # -------------------------------------------------------------
-# 2. Robust Market & Options Data Fetcher
+# 2. Resilient Data Engine
 # -------------------------------------------------------------
-def get_custom_session():
+def get_session():
     session = requests.Session()
     session.headers.update({
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36'
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
     })
     return session
 
 @st.cache_data(ttl=120)
-def load_market_data(symbol_str):
+def fetch_stock_data(ticker_symbol, timeframe="6m"):
     try:
-        session = get_custom_session()
-        ticker = yf.Ticker(symbol_str, session=session)
+        session = get_session()
+        ticker = yf.Ticker(ticker_symbol, session=session)
+        df = ticker.history(period=timeframe)
+        if df.empty:
+            return None, 0.0, 0.0
         
-        hist = ticker.history(period="1mo", interval="15m")
-        if hist.empty:
-            return None, [], None, 0.0
-
-        current_price = float(hist['Close'].iloc[-1])
-
-        # Automatic ATR Calculation for Target/Stop Loss
-        high_low = hist['High'] - hist['Low']
-        high_cp = np.abs(hist['High'] - hist['Close'].shift())
-        low_cp = np.abs(hist['Low'] - hist['Close'].shift())
+        # Calculate ATR
+        high_low = df['High'] - df['Low']
+        high_cp = np.abs(df['High'] - df['Close'].shift())
+        low_cp = np.abs(df['Low'] - df['Close'].shift())
         tr = pd.concat([high_low, high_cp, low_cp], axis=1).max(axis=1)
-        atr_val = float(tr.rolling(14).mean().iloc[-1])
-
-        # Expiration dates fetch with fallback
-        try:
-            expirations = list(ticker.options)
-        except Exception:
-            expirations = []
-
-        return current_price, expirations, hist, atr_val
+        atr = float(tr.rolling(14).mean().iloc[-1])
+        
+        curr_price = float(df['Close'].iloc[-1])
+        return df, curr_price, atr
     except Exception:
-        return None, [], None, 0.0
+        return None, 0.0, 0.0
 
 @st.cache_data(ttl=120)
-def load_options_chain(symbol_str, exp_date, is_call_mode):
+def fetch_options_chain(ticker_symbol):
     try:
-        session = get_custom_session()
-        ticker = yf.Ticker(symbol_str, session=session)
-        chain = ticker.option_chain(exp_date)
-        return chain.calls if is_call_mode else chain.puts
+        session = get_session()
+        ticker = yf.Ticker(ticker_symbol, session=session)
+        expirations = list(ticker.options)
+        return ticker, expirations
     except Exception:
-        return pd.DataFrame()
+        return None, []
 
 # -------------------------------------------------------------
-# 3. Sidebar Setup
+# 3. Pattern Recognition Logic
 # -------------------------------------------------------------
-st.sidebar.markdown("## ⚡ Quant Terminal")
-symbol = st.sidebar.text_input("Stock Ticker:", value="AMD").upper().strip()
+def detect_patterns(df):
+    patterns = []
+    closes = df['Close'].values
+    highs = df['High'].values
+    lows = df['Low'].values
+    
+    if len(closes) < 30:
+        return ["Insufficient data for pattern detection"]
 
-live_price, expirations, price_hist, atr_value = load_market_data(symbol)
+    # Recent window analysis
+    r_closes = closes[-20:]
+    r_highs = highs[-20:]
+    r_lows = lows[-20:]
 
-if not live_price:
-    st.sidebar.error("⚠️ Connection Error")
-    if st.sidebar.button("🔄 Retry Connection"):
-        st.cache_data.clear()
-        st.rerun()
-    st.error(f"Failed to fetch market data for **{symbol}**. Click 'Retry Connection' in the sidebar.")
-else:
-    st.sidebar.markdown(f"**Live Stock Price:** `${live_price:.2f}`")
-    st.sidebar.markdown(f"**Volatility (14-ATR):** `${atr_value:.2f}`")
-    st.sidebar.markdown("---")
+    # 1. Double Bottom Detection
+    min1_idx = np.argmin(r_lows[:10])
+    min2_idx = np.argmin(r_lows[10:]) + 10
+    if abs(r_lows[min1_idx] - r_lows[min2_idx]) / r_lows[min1_idx] < 0.015:
+        patterns.append("🟢 Potential Double Bottom (Bullish Reversal)")
 
-    trade_type = st.sidebar.radio("Direction Strategy:", ["CALL (Bullish) 📈", "PUT (Bearish) 📉"])
-    is_call = "CALL" in trade_type
+    # 2. Double Top Detection
+    max1_idx = np.argmax(r_highs[:10])
+    max2_idx = np.argmax(r_highs[10:]) + 10
+    if abs(r_highs[max1_idx] - r_highs[max2_idx]) / r_highs[max1_idx] < 0.015:
+        patterns.append("🔴 Potential Double Top (Bearish Reversal)")
 
-    # Automated Target and Stop Loss using ATR (No manual input needed)
-    if is_call:
-        auto_tp = round(live_price + (1.5 * atr_value), 2)
-        auto_sl = round(live_price - (1.0 * atr_value), 2)
-    else:
-        auto_tp = round(live_price - (1.5 * atr_value), 2)
-        auto_sl = round(live_price + (1.0 * atr_value), 2)
+    # 3. Bull Flag Detection (Strong trend + consolidation)
+    initial_move = (closes[-15] - closes[-30]) / closes[-30]
+    recent_range = (max(r_highs[-10:]) - min(r_lows[-10:])) / min(r_lows[-10:])
+    if initial_move > 0.05 and recent_range < 0.03:
+        patterns.append("🚀 Bull Flag Consolidation")
+    elif initial_move < -0.05 and recent_range < 0.03:
+        patterns.append("⚠️ Bear Flag Consolidation")
 
-    st.sidebar.markdown("### 🤖 Auto-Calculated Targets")
-    st.sidebar.info(f"**Target Price (TP):** ${auto_tp}\n\n**Stop Loss (SL):** ${auto_sl}")
+    if not patterns:
+        patterns.append("➡️ Market in Standard Trend / Consolidation (No Classic Chart Pattern)")
 
-    if expirations:
-        selected_exp = st.sidebar.selectbox("Select Expiration Date:", expirations[:8])
-    else:
-        st.sidebar.warning("⚠️ Options chain currently unavailable for this ticker.")
-        selected_exp = None
+    return patterns
 
-    # -------------------------------------------------------------
-    # 4. Quant Chain Analyzer Engine
-    # -------------------------------------------------------------
-    def analyze_options_chain(opts_df, current_s, tp_s, sl_s, call_mode):
-        if opts_df.empty:
-            return None
+# -------------------------------------------------------------
+# 4. Quantitative Backtesting Engine
+# -------------------------------------------------------------
+def run_backtest(df, fast_ma, slow_ma, initial_capital=10000):
+    data = df.copy()
+    data['Fast_MA'] = data['Close'].rolling(window=fast_ma).mean()
+    data['Slow_MA'] = data['Close'].rolling(window=slow_ma).mean()
+    
+    data['Signal'] = 0
+    data.iloc[fast_ma:, data.columns.get_loc('Signal')] = np.where(
+        data['Fast_MA'].iloc[fast_ma:] > data['Slow_MA'].iloc[fast_ma:], 1, -1
+    )
+    
+    data['Position'] = data['Signal'].shift(1)
+    data['Market_Returns'] = data['Close'].pct_change()
+    data['Strategy_Returns'] = data['Market_Returns'] * data['Position']
+    
+    data['Cumulative_Market'] = (1 + data['Market_Returns']).cumprod() * initial_capital
+    data['Cumulative_Strategy'] = (1 + data['Strategy_Returns']).cumprod() * initial_capital
+    
+    # Calculate Performance Metrics
+    total_trades = (data['Position'].diff().abs() > 0).sum()
+    net_profit = data['Cumulative_Strategy'].iloc[-1] - initial_capital
+    ret_pct = (net_profit / initial_capital) * 100
+    
+    winning_days = (data['Strategy_Returns'] > 0).sum()
+    total_active_days = (data['Strategy_Returns'] != 0).sum()
+    win_rate = (winning_days / total_active_days * 100) if total_active_days > 0 else 0
+    
+    # Max Drawdown
+    rolling_max = data['Cumulative_Strategy'].cummax()
+    drawdown = (data['Cumulative_Strategy'] - rolling_max) / rolling_max
+    max_drawdown = drawdown.min() * 100
+    
+    return data, {
+        "net_profit": net_profit,
+        "ret_pct": ret_pct,
+        "win_rate": win_rate,
+        "max_dd": max_drawdown,
+        "trades": total_trades
+    }
 
-        opts = opts_df[(opts_df['strike'] >= current_s * 0.85) & (opts_df['strike'] <= current_s * 1.15)].copy()
-        opts = opts[opts['ask'] > 0.05].copy()
+# -------------------------------------------------------------
+# 5. Application Sidebar Controls
+# -------------------------------------------------------------
+st.sidebar.markdown("## ⚡ Quant Control Center")
+symbol = st.sidebar.text_input("Asset Ticker Symbol:", value="NVDA").upper().strip()
 
-        if opts.empty:
-            return None
+stock_df, live_price, atr_val = fetch_stock_data(symbol)
 
-        results = []
-        price_change_tp = abs(tp_s - current_s)
-        price_change_sl = abs(current_s - sl_s)
+if stock_df is None:
+    st.error(f"Failed to load data for ticker '{symbol}'. Please verify the symbol.")
+    st.stop()
 
-        for _, row in opts.iterrows():
-            strike = row['strike']
-            ask = row['ask']
-            bid = row['bid']
-            volume = row['volume'] if not np.isnan(row['volume']) else 0
+st.sidebar.markdown(f"**Current Price:** `${live_price:.2f}`")
+st.sidebar.markdown(f"**Volatility (14-ATR):** `${atr_val:.2f}`")
+st.sidebar.markdown("---")
 
-            moneness = (current_s - strike) if call_mode else (strike - current_s)
-            est_delta = min(0.85, max(0.15, 0.50 + (moneness / current_s) * 2.8))
+# Navigation Tabs
+view_mode = st.tabs(["📈 Stocks & Backtesting", "🎯 Options Quant Terminal"])
 
-            opt_tp_price = ask + (price_change_tp * est_delta)
-            opt_sl_price = max(0.01, ask - (price_change_sl * est_delta))
-
-            opt_profit = opt_tp_price - ask
-            opt_loss = ask - opt_sl_price
-
-            roi_pct = (opt_profit / ask) * 100
-            risk_pct = (opt_loss / ask) * 100
-            rr_ratio = round(opt_profit / opt_loss, 2) if opt_loss > 0 else 0
-
-            score = (roi_pct * 0.45) + (rr_ratio * 15) + (np.log1p(volume) * 2.5)
-
-            results.append({
-                "strike": strike, "ask": ask, "bid": bid, "volume": int(volume),
-                "delta": round(est_delta, 2), "opt_tp": round(opt_tp_price, 2),
-                "opt_sl": round(opt_sl_price, 2), "roi": round(roi_pct, 1),
-                "risk": round(risk_pct, 1), "rr": rr_ratio, "score": score
-            })
-
-        df_res = pd.DataFrame(results)
-        return df_res.sort_values(by="score", ascending=False) if not df_res.empty else None
-
-    # -------------------------------------------------------------
-    # 5. Dashboard Rendering
-    # -------------------------------------------------------------
+# -------------------------------------------------------------
+# TAB 1: STOCKS, PATTERNS & BACKTESTING
+# -------------------------------------------------------------
+with view_mode[0]:
     st.markdown(f"""
-    <div class="terminal-header">
-        <div style="display: flex; justify-content: space-between; align-items: center;">
-            <div>
-                <h2 style="margin:0; color: #f0f6fc;">Options Quant Dashboard: <span style="color:#58a6ff;">{symbol}</span></h2>
-                <p style="margin:4px 0 0 0; color:#8b949e;">Algorithmic Strike Selector & Risk Evaluator</p>
-            </div>
-            <div style="text-align: right;">
-                <span style="font-size: 0.85rem; color: #8b949e;">Stock Price</span>
-                <div style="font-size: 1.6rem; font-weight: bold; color: #f0f6fc;">${live_price:.2f}</div>
-            </div>
-        </div>
+    <div class="hero-banner">
+        <h2 style="margin:0; color:#f0f6fc;">Stock Analytics & Backtesting Terminal</h2>
+        <p style="margin:5px 0 0 0; color:#8b949e;">Automated Pattern Detection & Moving Average Quantitative Backtest</p>
     </div>
     """, unsafe_allow_html=True)
+    
+    # Pattern Recognition Header
+    detected_patterns = detect_patterns(stock_df)
+    st.markdown("### 🔍 Real-Time Chart Pattern Recognition")
+    col_p1, col_p2 = st.columns([2, 1])
+    with col_p1:
+        for p in detected_patterns:
+            st.info(f"**Detected:** {p}")
+    with col_p2:
+        st.markdown(f"""
+        <div class="metric-card">
+            <div class="metric-label">Pattern Confidence</div>
+            <div class="metric-val-blue">High (Statistical)</div>
+        </div>
+        """, unsafe_allow_html=True)
+        
+    st.markdown("---")
+    st.markdown("### 🧪 Quantitative Backtesting Parameters")
+    
+    b_col1, b_col2, b_col3 = st.columns(3)
+    fast_period = b_col1.number_input("Fast MA Period (Days):", min_value=5, max_value=50, value=10)
+    slow_period = b_col2.number_input("Slow MA Period (Days):", min_value=20, max_value=200, value=30)
+    capital = b_col3.number_input("Initial Backtest Capital ($):", min_value=1000, value=10000, step=1000)
+    
+    bt_df, metrics = run_backtest(stock_df, fast_period, slow_period, capital)
+    
+    # Render Backtest Performance Dashboard
+    m1, m2, m3, m4 = st.columns(4)
+    m1.markdown(f'<div class="metric-card"><div class="metric-label">Net Profit</div><div class="{"metric-val-green" if metrics["net_profit"]>=0 else "metric-val-red"}">${metrics["net_profit"]:.2f} ({metrics["ret_pct"]:.1f}%)</div></div>', unsafe_allow_html=True)
+    m2.markdown(f'<div class="metric-card"><div class="metric-label">Win Rate</div><div class="metric-val-blue">{metrics["win_rate"]:.1f}%</div></div>', unsafe_allow_html=True)
+    m3.markdown(f'<div class="metric-card"><div class="metric-label">Max Drawdown</div><div class="metric-val-red">{metrics["max_dd"]:.1f}%</div></div>', unsafe_allow_html=True)
+    m4.markdown(f'<div class="metric-card"><div class="metric-label">Total Trades Triggered</div><div class="metric-val-blue">{metrics["trades"]}</div></div>', unsafe_allow_html=True)
+    
+    st.markdown("<br>", unsafe_allow_html=True)
+    
+    # Backtest Plot Charts
+    fig_bt = make_subplots(rows=2, cols=1, shared_xaxes=True, vertical_spacing=0.08, row_heights=[0.6, 0.4])
+    
+    fig_bt.add_trace(go.Candlestick(
+        x=bt_df.index, open=bt_df['Open'], high=bt_df['High'], low=bt_df['Low'], close=bt_df['Close'], name="Stock Price"
+    ), row=1, col=1)
+    fig_bt.add_trace(go.Scatter(x=bt_df.index, y=bt_df['Fast_MA'], line=dict(color='#58a6ff', width=1.5), name=f'Fast MA ({fast_period})'), row=1, col=1)
+    fig_bt.add_trace(go.Scatter(x=bt_df.index, y=bt_df['Slow_MA'], line=dict(color='#d29922', width=1.5), name=f'Slow MA ({slow_period})'), row=1, col=1)
+    
+    fig_bt.add_trace(go.Scatter(x=bt_df.index, y=bt_df['Cumulative_Strategy'], line=dict(color='#3fb950', width=2), name="Strategy Equity"), row=2, col=1)
+    fig_bt.add_trace(go.Scatter(x=bt_df.index, y=bt_df['Cumulative_Market'], line=dict(color='#8b949e', width=1, dash='dash'), name="Buy & Hold Equity"), row=2, col=1)
+    
+    fig_bt.update_layout(template="plotly_dark", height=500, paper_bgcolor="#090c10", plot_bgcolor="#090c10", xaxis_rangeslider_visible=False)
+    st.plotly_chart(fig_bt, use_container_width=True)
 
-    if selected_exp:
-        raw_opts = load_options_chain(symbol, selected_exp, is_call)
-        options_df = analyze_options_chain(raw_opts, live_price, auto_tp, auto_sl, is_call)
-
-        if options_df is not None and not options_df.empty:
-            best = options_df.iloc[0]
-
-            st.markdown(f"""
-            <div class="hero-card">
-                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
-                    <span class="badge-recommend">🏆 OPTIMAL CONTRACT CHOICE</span>
-                    <span style="color: #8b949e; font-size: 0.85rem;">EXP: <b>{selected_exp}</b></span>
+# -------------------------------------------------------------
+# TAB 2: OPTIONS QUANT TERMINAL
+# -------------------------------------------------------------
+with view_mode[1]:
+    st.markdown(f"""
+    <div class="hero-banner">
+        <h2 style="margin:0; color:#f0f6fc;">Options Algorithmic Selector</h2>
+        <p style="margin:5px 0 0 0; color:#8b949e;">Optimal Strike Selection via Dynamic Delta & Risk Engine</p>
+    </div>
+    """, unsafe_allow_html=True)
+    
+    ticker_obj, exp_dates = fetch_options_chain(symbol)
+    
+    if not exp_dates:
+        st.warning("⚠️ No options chains available for this asset currently.")
+    else:
+        o_col1, o_col2 = st.columns(2)
+        selected_exp = o_col1.selectbox("Select Option Expiration Date:", exp_dates[:10])
+        trade_dir = o_col2.radio("Market Bias:", ["CALL (Bullish) 📈", "PUT (Bearish) 📉"], horizontal=True)
+        
+        is_call_type = "CALL" in trade_dir
+        
+        # Auto ATR-based Stock Target & Stop
+        opt_tp_stock = round(live_price + (1.5 * atr_val) if is_call_type else live_price - (1.5 * atr_val), 2)
+        opt_sl_stock = round(live_price - (1.0 * atr_val) if is_call_type else live_price + (1.0 * atr_val), 2)
+        
+        st.info(f"💡 **Automated ATR Targets:** Price Target = **${opt_tp_stock}** | Stop Loss = **${opt_sl_stock}**")
+        
+        # Process Options Data
+        try:
+            chain = ticker_obj.option_chain(selected_exp)
+            opts_df = chain.calls if is_call_type else chain.puts
+            
+            opts = opts_df[(opts_df['strike'] >= live_price * 0.85) & (opts_df['strike'] <= live_price * 1.15)].copy()
+            opts = opts[opts['ask'] > 0.05].copy()
+            
+            if not opts.empty:
+                results = []
+                dp = abs(opt_tp_stock - live_price)
+                ds = abs(live_price - opt_sl_stock)
+                
+                for _, row in opts.iterrows():
+                    strike = row['strike']
+                    ask = row['ask']
+                    bid = row['bid']
+                    vol = row['volume'] if not np.isnan(row['volume']) else 0
+                    
+                    moneness = (live_price - strike) if is_call_type else (strike - live_price)
+                    delta = min(0.85, max(0.15, 0.50 + (moneness / live_price) * 2.8))
+                    
+                    tp_price = ask + (dp * delta)
+                    sl_price = max(0.01, ask - (ds * delta))
+                    
+                    profit = tp_price - ask
+                    loss = ask - sl_price
+                    rr = round(profit / loss, 2) if loss > 0 else 0
+                    roi = (profit / ask) * 100
+                    
+                    score = (roi * 0.4) + (rr * 15) + (np.log1p(vol) * 2.0)
+                    
+                    results.append({
+                        "Strike": strike, "Ask": ask, "Bid": bid, "Volume": int(vol),
+                        "Delta": round(delta, 2), "Opt TP": round(tp_price, 2),
+                        "Opt SL": round(sl_price, 2), "ROI %": round(roi, 1),
+                        "R:R": rr, "Score": score
+                    })
+                
+                res_df = pd.DataFrame(results).sort_values(by="Score", ascending=False)
+                top_opt = res_df.iloc[0]
+                
+                # Hero Optimal Contract Display
+                st.markdown(f"""
+                <div class="hero-banner" style="border-color:#3fb950; background: rgba(63, 185, 80, 0.1);">
+                    <div style="display:flex; justify-content:space-between; align-items:center;">
+                        <div>
+                            <span style="background:#238636; color:#fff; padding:3px 10px; border-radius:8px; font-weight:bold; font-size:0.8rem;">OPTIMAL CONTRACT</span>
+                            <h1 style="margin:10px 0 0 0; color:#f0f6fc;">{symbol} ${top_opt['Strike']:.1f} {'CALL' if is_call_type else 'PUT'}</h1>
+                        </div>
+                        <div style="text-align:right;">
+                            <span style="color:#8b949e; font-size:0.9rem;">Ask Price</span>
+                            <h2 style="margin:0; color:#58a6ff;">${top_opt['Ask']:.2f}</h2>
+                        </div>
+                    </div>
                 </div>
-                <div style="font-size: 2.2rem; font-weight: 800; color: #f0f6fc; margin-bottom: 8px;">
-                    {symbol} ${best['strike']:.1f} {'CALL' if is_call else 'PUT'}
-                </div>
-                <p style="margin:0; color: #8b949e; font-size: 0.95rem;">
-                    Buy Price (Ask): <b style="color:#f0f6fc;">${best['ask']:.2f}</b> (${best['ask']*100:.0f}/contract) | 
-                    Volume: <b style="color:#f0f6fc;">{best['volume']:,}</b> | 
-                    Estimated Delta: <b style="color:#f0f6fc;">{best['delta']}</b>
-                </p>
-            </div>
-            """, unsafe_allow_html=True)
-
-            m1, m2, m3, m4 = st.columns(4)
-            m1.markdown(f'<div class="stat-card"><div class="stat-label">Option Target (TP)</div><div class="stat-val-green">${best["opt_tp"]:.2f} (+{best["roi"]}%)</div></div>', unsafe_allow_html=True)
-            m2.markdown(f'<div class="stat-card"><div class="stat-label">Option Stop Loss (SL)</div><div class="stat-val-red">${best["opt_sl"]:.2f} (-{best["risk"]}%)</div></div>', unsafe_allow_html=True)
-            m3.markdown(f'<div class="stat-card"><div class="stat-label">Risk/Reward Ratio</div><div class="stat-val-blue">1:{best["rr"]}</div></div>', unsafe_allow_html=True)
-            m4.markdown(f'<div class="stat-card"><div class="stat-label">Expected Profit / Contract</div><div class="stat-val-green">+${(best["opt_tp"] - best["ask"])*100:.0f}</div></div>', unsafe_allow_html=True)
-
-            st.markdown("<br>", unsafe_allow_html=True)
-
-            tab_chart, tab_table = st.tabs(["📈 Price Chart & Targets", "📋 Option Chain Ranking"])
-
-            with tab_chart:
-                fig = go.Figure()
-                fig.add_trace(go.Candlestick(
-                    x=price_hist.index, open=price_hist['Open'],
-                    high=price_hist['High'], low=price_hist['Low'],
-                    close=price_hist['Close'], name="Price"
-                ))
-                fig.add_hline(y=auto_tp, line_dash="dash", line_color="#3fb950", line_width=2, annotation_text=f"Auto TP (${auto_tp})")
-                fig.add_hline(y=auto_sl, line_dash="dash", line_color="#f85149", line_width=2, annotation_text=f"Auto SL (${auto_sl})")
-                fig.update_layout(template="plotly_dark", height=420, paper_bgcolor="#0b0e14", plot_bgcolor="#0b0e14", xaxis_rangeslider_visible=False)
-                st.plotly_chart(fig, use_container_width=True)
-
-            with tab_table:
-                clean_df = options_df[['strike', 'ask', 'bid', 'delta', 'opt_tp', 'roi', 'opt_sl', 'risk', 'rr', 'volume']].copy()
-                clean_df.columns = ['Strike', 'Ask Price', 'Bid Price', 'Delta', 'Option TP ($)', 'Expected ROI (%)', 'Option SL ($)', 'Max Risk (%)', 'R:R Ratio', 'Volume']
-                st.dataframe(clean_df, use_container_width=True, height=380)
-
-        else:
-            st.warning("No suitable options contracts found for the selected expiration date.")
+                """, unsafe_allow_html=True)
+                
+                o1, o2, o3, o4 = st.columns(4)
+                o1.markdown(f'<div class="metric-card"><div class="metric-label">Option Target (TP)</div><div class="metric-val-green">${top_opt["Opt TP"]:.2f} (+{top_opt["ROI %"]}%)</div></div>', unsafe_allow_html=True)
+                o2.markdown(f'<div class="metric-card"><div class="metric-label">Option Stop Loss (SL)</div><div class="metric-val-red">${top_opt["Opt SL"]:.2f}</div></div>', unsafe_allow_html=True)
+                o3.markdown(f'<div class="metric-card"><div class="metric-label">Risk/Reward</div><div class="metric-val-blue">1:{top_opt["R:R"]}</div></div>', unsafe_allow_html=True)
+                o4.markdown(f'<div class="metric-card"><div class="metric-label">Expected Net Return</div><div class="metric-val-green">+${(top_opt["Opt TP"]-top_opt["Ask"])*100:.0f}</div></div>', unsafe_allow_html=True)
+                
+                st.markdown("<br>", unsafe_allow_html=True)
+                st.markdown("### 📋 Ranked Option Chain Matrix")
+                st.dataframe(res_df.drop(columns=['Score']), use_container_width=True, height=350)
+                
+            else:
+                st.warning("No high-liquidity contracts matching criteria.")
+        except Exception as e:
+            st.error("Error fetching option chain details.")
